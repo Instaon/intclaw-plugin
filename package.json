@@ -1,5 +1,5 @@
 {
-  "name": "@insta-sdk/intclaw-plugin",
+  "name": "@insta-sdk/intclaw",
   "version": "1.0.0",
   "type": "module",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
@@ -28,12 +28,12 @@
   "packageManager": "pnpm@10.25.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/insta-sdk/intclaw-plugin.git"
+    "url": "https://github.com/insta-sdk/intclaw.git"
   },
   "bugs": {
-    "url": "https://github.com/insta-sdk/intclaw-plugin/issues"
+    "url": "https://github.com/insta-sdk/intclaw/issues"
   },
-  "homepage": "https://github.com/insta-sdk/intclaw-plugin#readme",
+  "homepage": "https://github.com/insta-sdk/intclaw#readme",
   "files": [
     "src/index.js",
     "src/channel",
