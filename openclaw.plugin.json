@@ -1,0 +1,99 @@
+{
+  "id": "intclaw-plugin",
+  "name": "IntClaw Plugin",
+  "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
+  "version": "1.0.0",
+  "kind": "channel",
+  "channels": ["intclaw"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable/disable the IntClaw channel",
+        "default": true
+      },
+      "wsUrl": {
+        "type": "string",
+        "description": "WebSocket server URL for IntClaw connection (e.g., wss://api.intclaw.example.com/ws)",
+        "format": "uri"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "API key for authentication with IntClaw server"
+      },
+      "reconnectInterval": {
+        "type": "number",
+        "description": "Reconnection interval in milliseconds",
+        "default": 5000,
+        "minimum": 1000
+      },
+      "dmPolicy": {
+        "type": "string",
+        "enum": ["pairing", "allowlist", "open", "disabled"],
+        "description": "Direct message policy",
+        "default": "pairing"
+      },
+      "allowFrom": {
+        "type": "array",
+        "description": "DM allowlist (peer IDs)",
+        "items": {
+          "type": "string"
+        }
+      },
+      "groupPolicy": {
+        "type": "string",
+        "enum": ["allowlist", "open", "disabled"],
+        "description": "Group message policy",
+        "default": "allowlist"
+      },
+      "groupAllowFrom": {
+        "type": "array",
+        "description": "Group allowlist (peer IDs)",
+        "items": {
+          "type": "string"
+        }
+      },
+      "groups": {
+        "type": "object",
+        "description": "Per-group configuration",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "allow": {
+              "type": "boolean",
+              "default": true
+            },
+            "requireMention": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      },
+      "accounts": {
+        "type": "object",
+        "description": "Multi-account configuration",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "wsUrl": {
+              "type": "string",
+              "description": "Account-specific WebSocket URL"
+            },
+            "apiKey": {
+              "type": "string",
+              "description": "Account-specific API key"
+            }
+          }
+        }
+      }
+    },
+    "required": ["wsUrl", "apiKey"]
+  }
+}
