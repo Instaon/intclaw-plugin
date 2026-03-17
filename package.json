@@ -1,5 +1,5 @@
 {
-  "name": "@insta-sdk/intclaw",
+  "name": "@insta-dev01/intclaw",
   "version": "1.0.0",
   "type": "module",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",

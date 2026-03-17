@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -type f -name \"*.js\" -o -name \"*.ts\" 2>/dev/null | head -20)",
+      "WebSearch",
+      "Bash(pnpm install:*)",
+      "Bash(node --check /Users/bianhui/Documents/Code/intclaw-plugin/src/index.js)",
+      "Bash(node --check /Users/bianhui/Documents/Code/intclaw-plugin/src/channel/IntClawChannel.js)",
+      "Bash(pnpm test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm whoami:*)",
+      "Bash(npm view:*)",
+      "Bash(pnpm pack:*)",
+      "Bash(npm pack:*)"
+    ]
+  }
+}
