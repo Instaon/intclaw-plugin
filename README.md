@@ -29,9 +29,23 @@ pnpm install
 
 ## Configuration
 
-Add the following to your OpenClaw config (`~/.openclaw/openclaw.json`):
+### Method 1: Interactive Setup Wizard (Recommended)
 
-### Basic Configuration
+Run the setup wizard and follow the prompts:
+
+```bash
+openclaw channels add
+```
+
+Select **IntClaw** from the channel list, then enter:
+- **WebSocket Server URL**: Your IntClaw server WebSocket URL (e.g., `wss://api.intclaw.example.com/ws`)
+- **API Key**: Your API key for authentication
+
+The wizard will guide you through additional optional settings like DM policy and group policy.
+
+### Method 2: Configuration File
+
+Edit your OpenClaw config file at `~/.openclaw/openclaw.json`:
 
 ```json5
 {
@@ -47,12 +61,23 @@ Add the following to your OpenClaw config (`~/.openclaw/openclaw.json`):
 }
 ```
 
-### Configuration via Environment Variables
+After editing, restart the gateway:
+
+```bash
+openclaw gateway restart
+```
+
+### Method 3: Environment Variables
+
+Set environment variables before starting OpenClaw:
 
 ```bash
 export INTCLAW_WS_URL="wss://api.intclaw.example.com/ws"
 export INTCLAW_API_KEY="your-api-key-here"
+openclaw gateway
 ```
+
+**Note**: Configuration file values take precedence over environment variables.
 
 ### Full Configuration Options
 

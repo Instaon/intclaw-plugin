@@ -95,5 +95,47 @@
       }
     },
     "required": ["wsUrl", "apiKey"]
+  },
+  "uiHints": {
+    "wsUrl": {
+      "label": "WebSocket Server URL",
+      "placeholder": "wss://api.intclaw.example.com/ws",
+      "helpText": "The WebSocket URL of your IntClaw server",
+      "order": 1
+    },
+    "apiKey": {
+      "label": "API Key",
+      "placeholder": "Enter your API key",
+      "helpText": "API key for authenticating with the IntClaw server",
+      "sensitive": true,
+      "order": 2
+    },
+    "reconnectInterval": {
+      "label": "Reconnection Interval (ms)",
+      "placeholder": "5000",
+      "helpText": "How long to wait before reconnecting (in milliseconds)",
+      "order": 3
+    },
+    "dmPolicy": {
+      "label": "Direct Message Policy",
+      "helpText": "How to handle direct messages from unknown users",
+      "options": {
+        "pairing": "Require pairing approval",
+        "allowlist": "Only allow listed users",
+        "open": "Allow all users",
+        "disabled": "Disable direct messages"
+      },
+      "order": 4
+    },
+    "groupPolicy": {
+      "label": "Group Message Policy",
+      "helpText": "How to handle group messages",
+      "options": {
+        "allowlist": "Only allow listed groups",
+        "open": "Allow all groups",
+        "disabled": "Disable group messages"
+      },
+      "order": 5
+    }
   }
 }
