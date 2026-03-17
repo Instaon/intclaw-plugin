@@ -1,5 +1,5 @@
 {
-  "name": "intclaw-plugin",
+  "name": "@insta-sdk/intclaw-plugin",
   "version": "1.0.0",
   "type": "module",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
@@ -7,7 +7,8 @@
   "scripts": {
     "test": "node --test src/__tests__/**/*.test.js",
     "test:watch": "node --test --watch src/__tests__/**/*.test.js",
-    "prepublishOnly": "pnpm test"
+    "prepublishOnly": "pnpm test",
+    "publish:public": "npm publish --access public"
   },
   "keywords": [
     "openclaw",
@@ -19,19 +20,20 @@
     "messaging",
     "gateway",
     "ai",
-    "bot"
+    "bot",
+    "insta-sdk"
   ],
   "author": "Your Name <your.email@example.com>",
   "license": "ISC",
   "packageManager": "pnpm@10.25.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/intclaw-plugin.git"
+    "url": "https://github.com/insta-sdk/intclaw-plugin.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/intclaw-plugin/issues"
+    "url": "https://github.com/insta-sdk/intclaw-plugin/issues"
   },
-  "homepage": "https://github.com/your-username/intclaw-plugin#readme",
+  "homepage": "https://github.com/insta-sdk/intclaw-plugin#readme",
   "files": [
     "src/index.js",
     "src/channel",
