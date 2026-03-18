@@ -30,9 +30,9 @@ export async function register(gateway, config) {
     return;
   }
 
-  // Skip if required configuration is missing (plugin not configured yet)
+  // Skip if required configuration is missing
   if (!config?.wsUrl || !config?.apiKey) {
-    console.log('[IntClaw] Plugin installed but not configured yet. Run "claw setup intclaw" to configure.');
+    console.log('[IntClaw] Configuration missing (wsUrl, apiKey)');
     return;
   }
 

@@ -5,6 +5,7 @@
  */
 
 const CHANNEL_ID = 'intclaw';
+const DEFAULT_WS_URL = 'wss://claw-message.int-os.com';
 const DEFAULT_RECONNECT_INTERVAL = 5000;
 
 /**
@@ -52,10 +53,6 @@ export class IntClawChannel {
   async start() {
     this.#log('info', 'Starting IntClaw channel...');
 
-    if (!this.#config.wsUrl) {
-      throw new Error('IntClaw channel requires wsUrl in configuration');
-    }
-
     if (!this.#config.apiKey) {
       throw new Error('IntClaw channel requires apiKey in configuration');
     }
@@ -92,12 +89,13 @@ export class IntClawChannel {
     }
 
     try {
-      this.#log('info', `Connecting to IntClaw server: ${this.#config.wsUrl}`);
+      const wsUrl = this.#config.wsUrl || DEFAULT_WS_URL;
+      this.#log('info', `Connecting to IntClaw server: ${wsUrl}`);
 
       // Import ws module dynamically
       const WebSocket = (await import('ws')).default;
 
-      this.#ws = new WebSocket(this.#config.wsUrl, {
+      this.#ws = new WebSocket(wsUrl, {
         headers: {
           'X-API-Key': this.#config.apiKey,
         },
