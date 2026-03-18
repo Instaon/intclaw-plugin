@@ -1,4 +1,4 @@
-# @insta-sdk/intclaw
+# @insta-dev01/intclaw
 
 OpenClaw plugin for IntClaw services - provides WebSocket-based channel integration connecting OpenClaw to:
 
@@ -20,7 +20,7 @@ This plugin implements a bidirectional WebSocket channel that:
 
 ```bash
 # Install from npm
-openclaw plugins install @insta-sdk/intclaw
+openclaw plugins install @insta-dev01/intclaw
 
 # Install from local directory (for development)
 openclaw plugins install /path/to/intclaw

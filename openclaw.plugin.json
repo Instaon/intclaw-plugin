@@ -1,8 +1,8 @@
 {
-  "id": "intclaw-plugin",
+  "id": "intclaw",
   "name": "IntClaw Plugin",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "kind": "channel",
   "channels": ["intclaw"],
   "configSchema": {
@@ -16,8 +16,7 @@
       },
       "wsUrl": {
         "type": "string",
-        "description": "WebSocket server URL for IntClaw connection (e.g., wss://api.intclaw.example.com/ws)",
-        "format": "uri"
+        "description": "WebSocket server URL for IntClaw connection (e.g., wss://api.intclaw.example.com/ws)"
       },
       "apiKey": {
         "type": "string",
@@ -93,8 +92,7 @@
           }
         }
       }
-    },
-    "required": ["wsUrl", "apiKey"]
+    }
   },
   "uiHints": {
     "wsUrl": {

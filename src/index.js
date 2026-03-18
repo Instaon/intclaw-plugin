@@ -19,13 +19,22 @@ export async function registerChannel(gateway, config) {
 }
 
 /**
- * Plugin initialization function
+ * Plugin initialization function (OpenClaw entry point)
  * @param {Object} gateway - OpenClaw gateway instance
  * @param {Object} config - Plugin configuration
  * @returns {Promise<void>}
  */
-export async function init(gateway, config) {
-  if (config.enabled !== false) {
-    await registerChannel(gateway, config);
+export async function register(gateway, config) {
+  // Skip if explicitly disabled
+  if (config?.enabled === false) {
+    return;
   }
+
+  // Skip if required configuration is missing (plugin not configured yet)
+  if (!config?.wsUrl || !config?.apiKey) {
+    console.log('[IntClaw] Plugin installed but not configured yet. Run "claw setup intclaw" to configure.');
+    return;
+  }
+
+  await registerChannel(gateway, config);
 }

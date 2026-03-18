@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 引态消息通道 (IntClaw Message Channel)
 - 引态智能体协作引擎 (IntClaw Agent Collaboration Engine)
 - 引态 claw hub服务 (IntClaw Claw Hub Services)
+- 插件开发方式文档在文件夹"Development Guide docs"中
 
 OpenClaw is a WhatsApp + Telegram + Discord + iMessage gateway for AI agents. This plugin extends OpenClaw to connect to IntClaw services.
 
@@ -32,7 +33,3 @@ pnpm install
 # Run tests (once configured)
 pnpm test
 ```
-
-## Project Status
-
-This is an early-stage project. Source code structure is still being established.
