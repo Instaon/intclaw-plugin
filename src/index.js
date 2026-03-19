@@ -1,40 +1,23 @@
 /**
- * IntClaw Channel Plugin for OpenClaw
- *
- * This plugin provides a WebSocket-based channel for connecting to IntClaw services.
- * It handles bidirectional message flow between OpenClaw and IntClaw servers.
+ * ---
+ * status: active
+ * birth_time: "2026-03-19T09:42:00Z"
+ * original_intent: "Entry point for IntClaw plugin"
+ * version_count: 2
+ * ---
  */
 
-import { IntClawChannel } from './channel/IntClawChannel.js';
+import { start_intclaw_channel } from './channel/intclaw_channel.js';
 
-/**
- * Register the IntClaw channel with OpenClaw
- * @param {Object} gateway - OpenClaw gateway instance
- * @param {Object} config - Channel configuration
- * @returns {Promise<void>}
- */
-export async function registerChannel(gateway, config) {
-  const channel = new IntClawChannel(gateway, config);
-  await channel.start();
-}
-
-/**
- * Plugin initialization function (OpenClaw entry point)
- * @param {Object} gateway - OpenClaw gateway instance
- * @param {Object} config - Plugin configuration
- * @returns {Promise<void>}
- */
 export async function register(gateway, config) {
-  // Skip if explicitly disabled
   if (config?.enabled === false) {
     return;
   }
 
-  // Skip if required configuration is missing
-  if (!config?.wsUrl || !config?.apiKey) {
-    console.log('[IntClaw] Configuration missing (wsUrl, apiKey)');
+  if (!config?.wsUrl || !config?.appKey || !config?.appSecret) {
+    console.log(JSON.stringify({ error: "missing_config_wsurl_or_keys" }));
     return;
   }
 
-  await registerChannel(gateway, config);
+  await start_intclaw_channel(gateway, config);
 }

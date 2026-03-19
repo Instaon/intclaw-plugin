@@ -1,6 +1,6 @@
 {
   "name": "@insta-dev01/intclaw",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "type": "module",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
   "main": "src/index.js",
@@ -8,7 +8,8 @@
     "test": "node --test src/__tests__/**/*.test.js",
     "test:watch": "node --test --watch src/__tests__/**/*.test.js",
     "prepublishOnly": "pnpm test",
-    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org/"
+    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org/",
+    "tologin":"npm login --registry=https://registry.npmjs.org/"
   },
   "keywords": [
     "openclaw",

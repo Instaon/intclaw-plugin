@@ -2,7 +2,7 @@
   "id": "intclaw",
   "name": "IntClaw Plugin",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "kind": "channel",
   "channels": ["intclaw"],
   "configSchema": {
@@ -14,13 +14,13 @@
         "description": "Enable/disable the IntClaw channel",
         "default": true
       },
-      "apiKey": {
+      "appKey": {
         "type": "string",
-        "description": "API key for authentication with IntClaw server"
+        "description": "APP key for authentication with IntClaw server"
       },
-      "apiSecret": {
+      "appSecret": {
         "type": "string",
-        "description": "API secret for authentication with IntClaw server"
+        "description": "APP secret for authentication with IntClaw server"
       },
       "shadowInstance": {
         "type": "boolean",
