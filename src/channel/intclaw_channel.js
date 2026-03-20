@@ -219,8 +219,9 @@ export const intclawChannel = {
   },
 
   gateway: {
-    startAccount(ctx) {
+    async startAccount(ctx) {
       const { account, abortSignal, cfg, log } = ctx;
+      log?.info("startAccount")
       const appKey = account.config?.appKey;
       const appSecret = account.config?.appSecret;
 
@@ -258,8 +259,15 @@ export const intclawChannel = {
 
         wsConn.on('message', async (data) => {
           try {
-            const msg = JSON.parse(data.toString());
-
+            // const msg = JSON.parse(data.toString());
+            const msg = {
+              type: 'auth_response',
+              payload: {
+                peerKind: 'direct',
+                peerId: "1",
+                text: data.toString()
+              }
+            }
             if (msg.type === 'auth_response') {
               log?.info?.(`[IntClaw] Auth response: success=${msg.success}`);
               if (msg.success && ctx.channelReady) {
@@ -293,11 +301,11 @@ export const intclawChannel = {
       const processIncomingMessage = async (payload, wsTarget, accountInfo, cfg, ctx) => {
         let peerIdOut = String(payload.peerId || '');
         if (payload.peerKind === 'group' && !peerIdOut.startsWith('group:')) {
-            peerIdOut = `group:${peerIdOut}`;
+          peerIdOut = `group:${peerIdOut}`;
         } else if (payload.peerKind === 'direct' && !peerIdOut.startsWith('user:')) {
-            peerIdOut = `user:${peerIdOut}`;
+          peerIdOut = `user:${peerIdOut}`;
         }
-        
+
         const sessionContext = {
           channel: 'intclaw',
           accountId: accountInfo.accountId,
