@@ -22,14 +22,14 @@
         "type": "string",
         "description": "APP secret for authentication with IntClaw server"
       },
-      "shadowInstance": {
+      "cloudTwin": {
         "type": "boolean",
-        "description": "Enable shadow instance mode",
+        "description": "Enable cloud twin mode",
         "default": false
       },
-      "shadowDataAllowlist": {
+      "cloudTwinUploadAllowlist": {
         "type": "array",
-        "description": "Shadow data allowlist",
+        "description": "Allow uploading files for Twin",
         "items": {
           "type": "string"
         },
@@ -48,28 +48,28 @@
     }
   },
   "uiHints": {
-    "apiKey": {
+    "appKey": {
       "label": "API Key",
       "placeholder": "Enter your API key",
       "helpText": "API key for authenticating with the IntClaw server",
       "sensitive": true,
       "order": 1
     },
-    "apiSecret": {
+    "appSecret": {
       "label": "API Secret",
       "placeholder": "Enter your API secret",
       "helpText": "API secret for authenticating with the IntClaw server",
       "sensitive": true,
       "order": 2
     },
-    "shadowInstance": {
-      "label": "Shadow Instance",
-      "helpText": "Enable shadow instance mode",
+    "cloudTwin": {
+      "label": "Cloud Twin",
+      "helpText": "Enable cloud twin mode",
       "order": 3
     },
-    "shadowDataAllowlist": {
-      "label": "Shadow Data Allowlist",
-      "helpText": "List of allowed shadow data paths",
+    "cloudTwinUploadAllowlist": {
+      "label": "Cloud Twin Upload Allowlist",
+      "helpText": "Allow uploading files for Twin",
       "order": 4
     }
   }
