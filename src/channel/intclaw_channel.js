@@ -3,7 +3,7 @@
  * status: active
  * birth_time: "2026-03-20T00:00:00Z"
  * original_intent: "Provide IntClaw bidirectional websocket channel and proxy messages to OpenClaw gateway using chunked streaming"
- * version_count: 3
+ * version_count: 5
  * ---
  */
 
@@ -173,12 +173,13 @@ export const intclawChannel = {
     deliveryMode: 'direct',
     textChunkLimit: 4000,
 
-    async sendText(ctx) {
+    sendText(ctx) {
       const { cfg, to, text, accountId, log } = ctx;
       const actId = accountId || '__default__';
       const wsConn = wsConnections.get(actId);
 
       if (!wsConn || wsConn.readyState !== WebSocket.OPEN) {
+        log?.error?.(`[IntClaw] WebSocket not connected for account: ${actId}`);
         throw new Error('WebSocket not connected for account: ' + actId);
       }
 
@@ -192,6 +193,8 @@ export const intclawChannel = {
         peerId = peerId.slice(6);
         peerKind = 'group';
       }
+
+      log?.info?.(`[IntClaw] Sending message to ${peerKind}:${peerId}, text="${text.slice(0, 50)}..."`);
 
       const outMsg = {
         type: 'outgoing_message',
@@ -216,8 +219,8 @@ export const intclawChannel = {
   },
 
   gateway: {
-    async startAccount(ctx) {
-      const { account, abortSignal, cfg } = ctx;
+    startAccount(ctx) {
+      const { account, abortSignal, cfg, log } = ctx;
       const appKey = account.config?.appKey;
       const appSecret = account.config?.appSecret;
 
@@ -232,6 +235,7 @@ export const intclawChannel = {
       const connect = () => {
         if (stopped) return;
 
+        log?.info?.(`[IntClaw] Connecting to WebSocket: ${wsUrl}`);
         wsConn = new WebSocket(wsUrl, {
           headers: {
             'X-App-Key': appKey,
@@ -242,11 +246,13 @@ export const intclawChannel = {
         wsConnections.set(account.accountId, wsConn);
 
         wsConn.on('open', () => {
+          log?.info?.(`[IntClaw] WebSocket connected for account: ${account.accountId}`);
           const authPayload = {
             type: 'auth_request',
             app_key: appKey,
             timestamp: Date.now(),
           };
+          log?.info?.(`[IntClaw] Sending auth request for appKey: ${appKey}`);
           wsConn.send(JSON.stringify(authPayload));
         });
 
@@ -255,27 +261,30 @@ export const intclawChannel = {
             const msg = JSON.parse(data.toString());
 
             if (msg.type === 'auth_response') {
+              log?.info?.(`[IntClaw] Auth response: success=${msg.success}`);
               if (msg.success && ctx.channelReady) {
                 ctx.channelReady();
               }
             } else if (msg.type === 'incoming_message') {
+              log?.info?.(`[IntClaw] Received incoming message from ${msg.payload.peerId} (${msg.payload.peerKind}): ${msg.payload.text?.slice(0, 50)}...`);
               await processIncomingMessage(msg.payload, wsConn, account, cfg, ctx);
             } else if (msg.type === 'ping') {
               wsConn.send(JSON.stringify({ type: 'pong' }));
             }
           } catch (err) {
-            console.error(JSON.stringify({ error: 'failed_to_handle_msg', reason: err.message }));
+            log?.error?.(`[IntClaw] Failed to handle incoming message: ${err.message}`);
           }
         });
 
         wsConn.on('error', (err) => {
-          console.error(JSON.stringify({ error: 'ws_error', reason: err.message }));
+          log?.error?.(`[IntClaw] WebSocket error: ${err.message}`);
         });
 
         wsConn.on('close', (code, reason) => {
-          console.log(JSON.stringify({ event: 'ws_closed', code, reason: reason?.toString() }));
+          log?.warn?.(`[IntClaw] WebSocket closed: code=${code}, reason=${reason?.toString() || 'none'}`);
           wsConnections.delete(account.accountId);
           if (!stopped) {
+            log?.info?.(`[IntClaw] Reconnecting in 5 seconds...`);
             setTimeout(connect, 5000);
           }
         });
@@ -298,6 +307,8 @@ export const intclawChannel = {
         const sessionKey = JSON.stringify(sessionContext);
         const userContent = payload.text;
 
+        log?.info?.(`[IntClaw] Starting gateway stream for peerId=${peerIdOut}`);
+
         try {
           const replyId = `intclaw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -311,7 +322,7 @@ export const intclawChannel = {
           }
           sendStreamChunk(wsTarget, payload, accountInfo, '', true, replyId);
         } catch (err) {
-          console.error(JSON.stringify({ error: 'gateway_stream_failed', reason: err.message }));
+          log?.error?.(`[IntClaw] Gateway stream failed: ${err.message}`);
         }
       };
 
@@ -333,6 +344,10 @@ export const intclawChannel = {
           },
         };
 
+        if (isDone) {
+          log?.info?.(`[IntClaw] Stream finished for messageId=${id}`);
+        }
+
         wsTarget.send(JSON.stringify(outMsg));
       };
 
@@ -342,6 +357,7 @@ export const intclawChannel = {
         const doStop = () => {
           if (stopped) return;
           stopped = true;
+          log?.info?.(`[IntClaw] Stopping client for account: ${account.accountId}`);
           wsConnections.delete(account.accountId);
           if (wsConn) {
             wsConn.close();
@@ -370,7 +386,7 @@ export const intclawChannel = {
       lastError: null,
     },
 
-    async probe({ cfg }) {
+    probe({ cfg }) {
       const config = cfg?.channels?.['intclaw'] || {};
       const ok = !!(config.appKey && config.appSecret);
       return { ok };

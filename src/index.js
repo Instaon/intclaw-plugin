@@ -28,8 +28,17 @@ const plugin = {
 
   register(api) {
     runtime = api.runtime;
-    console.log("[intclaw插件启动]",runtime.config.loadConfig())
-    api.registerChannel({ plugin: intclawChannel });
+    let logger = runtime.logging?.getChildLogger(this.id)
+    logger?.info("[intclaw]插件启动")
+    let configData = runtime.config.loadConfig()?.plugins?.entries?.intclaw?.config
+    if (configData?.enabled) {
+      logger?.info("[intclaw]雇佣通道启动")
+      api.registerChannel({ plugin: intclawChannel });
+    }
+    if (configData?.cloudTwin && configData?.appKey && configData?.appSecret) {
+      // todo 开启长轮训等待上传数据通知
+      logger?.info("[intclaw]云分身启动")
+    }
   },
 };
 
