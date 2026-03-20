@@ -10,7 +10,7 @@
 import WebSocket from 'ws';
 
 export async function start_intclaw_channel(gateway, config) {
-  const ws_url = config.wsUrl || 'wss://claw-dev.int-os.com/user-ws/';
+  const ws_url = 'wss://claw-dev.int-os.com/user-ws/';
   
   const ws_conn = new WebSocket(ws_url, {
     headers: {

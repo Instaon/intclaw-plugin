@@ -14,8 +14,8 @@ export async function register(gateway, config) {
     return;
   }
 
-  if (!config?.wsUrl || !config?.appKey || !config?.appSecret) {
-    console.log(JSON.stringify({ error: "missing_config_wsurl_or_keys" }));
+  if (!config?.appKey || !config?.appSecret) {
+    console.log(JSON.stringify({ error: "missing_config_keys" }));
     return;
   }
 

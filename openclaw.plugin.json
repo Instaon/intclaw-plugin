@@ -2,7 +2,7 @@
   "id": "intclaw",
   "name": "IntClaw Plugin",
   "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "kind": "channel",
   "channels": ["intclaw"],
   "configSchema": {
