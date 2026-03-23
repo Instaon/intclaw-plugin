@@ -1,12 +1,13 @@
 {
   "name": "@insta-dev01/intclaw",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "IntClaw (IntClaw) channel connector — Stream mode with AI Card streaming",
   "main": "index.ts",
   "types": "index.ts",
   "type": "module",
   "files": [
     "index.ts",
+    "config.ts",
     "src/**/*",
     "openclaw.plugin.json",
     "README.md",
