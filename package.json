@@ -1,6 +1,6 @@
 {
-  "name": "@intclaw-real-ai/intclaw-connector",
-  "version": "0.8.1",
+  "name": "@insta-dev01/intclaw",
+  "version": "1.1.1",
   "description": "IntClaw (IntClaw) channel connector — Stream mode with AI Card streaming",
   "main": "index.ts",
   "types": "index.ts",

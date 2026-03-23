@@ -1,11 +1,11 @@
 {
-  "id": "intclaw-connector",
+  "id": "intclaw",
   "name": "IntClaw Channel",
-  "version": "0.8.1",
-  "description": "IntClaw (IntClaw) messaging channel via Stream mode with AI Card streaming",
+  "version": "1.1.1",
+  "description": "IntClaw (IntClaw) messaging channel via Stream mode with ai market streaming",
   "author": "IntClaw Real Team",
   "main": "index.ts",
-  "channels": ["intclaw-connector"],
+  "channels": ["intclaw"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
