@@ -42,22 +42,6 @@ const meta: ChannelMeta = {
   order: 70,
 };
 
-const secretInputJsonSchema = {
-  oneOf: [
-    { type: "string" },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["source", "provider", "id"],
-      properties: {
-        source: { type: "string", enum: ["env", "file", "exec"] },
-        provider: { type: "string", minLength: 1 },
-        id: { type: "string", minLength: 1 },
-      },
-    },
-  ],
-} as const;
-
 export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
   id: "intclaw-connector",
   meta: {
@@ -99,25 +83,17 @@ export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
       type: "object",
       properties: {
         enabled: { type: "boolean" },
-        defaultAccount: { type: "string" },
-        clientId: { oneOf: [{ type: "string" }, { type: "number" }] },
-        clientSecret: secretInputJsonSchema,
+        clientId:{ type: "string" },
+        clientSecret: { type: "string" },
         systemPrompt: { type: "string" },
-        accounts: {
-          type: "object",
-          additionalProperties: {
-            type: "object",
-            properties: {
-              enabled: { type: "boolean" },
-              name: { type: "string" },
-              clientId: { oneOf: [{ type: "string" }, { type: "number" }] },
-              clientSecret: secretInputJsonSchema,
-              systemPrompt: { type: "string" },
-            },
-          },
-        },
       },
     },
+    uiHints: {
+      enabled: { label: 'Make yourself available for hire' },
+      clientId: { label: 'App Key', sensitive: false },
+      clientSecret: { label: 'App Secret', sensitive: true },
+      systemPrompt: { label: 'System Prompt' }
+    }
   },
   config: {
     listAccountIds: (cfg) => listIntclawAccountIds(cfg),

@@ -1,7 +1,6 @@
 import { normalizeAccountId } from "../sdk/helpers.ts";
 import { z } from "zod";
 export { z };
-import { buildSecretInputSchema, hasConfiguredSecretInput } from "../secret-input.ts";
 
 const DmPolicySchema = z.enum(["open", "pairing", "allowlist"]);
 const GroupPolicySchema = z.enum(["open", "allowlist", "disabled"]);
@@ -78,7 +77,7 @@ export const IntclawAccountConfigSchema = z
     enabled: z.boolean().optional(),
     name: z.string().optional(), // Display name for this account
     clientId: z.union([z.string(), z.number()]).optional(),
-    clientSecret: buildSecretInputSchema().optional(),
+    clientSecret: z.string().optional(),
     ...IntclawSharedConfigShape,
   })
   .strict();
@@ -89,7 +88,7 @@ export const IntclawConfigSchema = z
     defaultAccount: z.string().optional(),
     // Top-level credentials (backward compatible for single-account mode)
     clientId: z.union([z.string(), z.number()]).optional(),
-    clientSecret: buildSecretInputSchema().optional(),
+    clientSecret: z.string().optional(),
     enableMediaUpload: z.boolean().optional(),
     systemPrompt: z.string().optional(),
     ...IntclawSharedConfigShape,

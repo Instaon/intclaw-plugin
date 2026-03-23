@@ -109,7 +109,7 @@ export async function monitorSingleAccount(
   // 包装器，兼容原有的 client 接口
   const client = {
     socket: null as import("ws").WebSocket | null,
-    messageHandler: null as ((res: any) => void) | null,
+    messageHandlers: new Map<string, (res: any) => void>(),
     
     // 连接
     connect: async () => {
@@ -161,7 +161,7 @@ export async function monitorSingleAccount(
     
     // 注册消息处理
     registerCallbackListener: (topic: string, handler: (res: any) => void) => {
-      client.messageHandler = handler;
+      client.messageHandlers.set(topic, handler);
     },
     
     // 处理旧的 client.on
@@ -338,11 +338,18 @@ export async function monitorSingleAccount(
           return;
         }
         
+        // 获取 topic: 优先取 headers.topic，然后取 type (例如 MESSAGE/EVENT) 作为 fallback，再默认转为 'robot'
+        const rawTopic = msg.headers?.topic || msg.type || "robot";
+        // 如果是标准的机器人消息话题
+        const topic = (rawTopic === "/v1.0/im/bot/messages" || rawTopic === "MESSAGE" || msg.msgtype) ? "robot" : rawTopic;
+
         // 派发给外部 handler
-        // 如果是从普通 WS 收到，保证有 headers.messageId
-        if (client.messageHandler) {
+        const handler = client.messageHandlers.get(topic);
+        if (handler) {
           const res = msg.headers ? msg : { headers: { messageId: msg.msgId || msg.messageId }, data: payload };
-          client.messageHandler(res);
+          handler(res);
+        } else {
+          logger.debug(`未找到对应 topic 的处理函数：${topic}`);
         }
       } catch (e) {
         // 忽略解析错误
