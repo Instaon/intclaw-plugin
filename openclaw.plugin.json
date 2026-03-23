@@ -44,6 +44,14 @@
           "skills/",
           "canvas/"
         ]
+      },
+      "gatewayToken": {
+        "type": "string",
+        "description": "Gateway auth token"
+      },
+      "gatewayBaseUrl": {
+        "type": "string",
+        "description": "Custom Gateway URL"
       }
     }
   },
@@ -71,6 +79,17 @@
       "label": "Cloud Twin Upload Allowlist",
       "helpText": "Allow uploading files for Twin",
       "order": 4
+    },
+    "gatewayToken": {
+      "label": "Gateway Token",
+      "helpText": "Gateway token",
+      "sensitive": true,
+      "order": 5
+    },
+    "gatewayBaseUrl": {
+      "label": "Gateway Base URL",
+      "helpText": "Custom Gateway URL",
+      "order": 6
     }
   }
 }

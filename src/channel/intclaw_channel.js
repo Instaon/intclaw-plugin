@@ -12,58 +12,90 @@ import { getRuntime } from '../index.js';
 
 const wsConnections = new Map();
 
-async function* streamFromGateway(opts) {
+async function* streamFromGateway(options) {
+  const { userContent, sessionKey, gatewayAuth, gatewayBaseUrl, memoryUser, gatewayPort, log, systemPrompts = [], agentId } = options;
   const rt = getRuntime();
-  const port = opts.gatewayPort || rt.gateway?.port || 18789;
-  const gatewayUrl = `http://127.0.0.1:${port}/v1/chat/completions`;
+  const port = gatewayPort || rt.gateway?.port || 18789;
+  const gatewayUrl = gatewayBaseUrl
+    ? `${gatewayBaseUrl}/v1/chat/completions`
+    : `http://127.0.0.1:${port}/v1/chat/completions`;
+
+  const messages = [];
+  for (const prompt of systemPrompts) {
+    if (prompt) messages.push({ role: 'system', content: prompt });
+  }
+  messages.push({ role: 'user', content: userContent });
 
   const headers = {
     'Content-Type': 'application/json',
-    'X-OpenClaw-Agent-Id': opts.agentId || 'main',
+    'X-OpenClaw-Agent-Id': agentId || 'main',
   };
 
-  const response = await fetch(gatewayUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: 'main',
-      messages: [
-        { role: 'user', content: opts.userContent }
-      ],
-      stream: true,
-      user: opts.sessionKey,
-    }),
-  });
-
-  if (!response.ok || !response.body) {
-    const errText = response.body ? await response.text() : '(no body)';
-    throw new Error(`Gateway error: ${response.status} - ${errText}`);
+  if (gatewayAuth) {
+    headers['Authorization'] = `Bearer ${gatewayAuth}`;
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  if (memoryUser) {
+    headers['X-OpenClaw-Memory-User'] = Buffer.from(memoryUser, 'utf-8').toString('base64');
+  }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  log?.info?.(`[IntClaw][Gateway] POST ${gatewayUrl}, session=${sessionKey}, agentId=${agentId || 'main'}, gatewayAuth=${gatewayAuth}`);
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+  const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  
+  try {
+    if (gatewayUrl.startsWith('https://')) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+      log?.debug?.(`[IntClaw][Gateway] TLS 模式：已临时禁用证书验证`);
+    }
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: 'main',
+        messages,
+        stream: true,
+        user: sessionKey,
+      }),
+    });
 
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') return;
+    if (!response.ok || !response.body) {
+      const errText = response.body ? await response.text() : '(no body)';
+      log?.error?.(`[IntClaw][Gateway] 错误响应：${errText}`);
+      throw new Error(`Gateway error: ${response.status} - ${errText}`);
+    }
 
-      try {
-        const chunk = JSON.parse(data);
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content) yield content;
-      } catch (_) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') return;
+
+        try {
+          const chunk = JSON.parse(data);
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch (_) {
+        }
       }
+    }
+  } finally {
+    if (gatewayUrl.startsWith('https://')) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+      log?.debug?.(`[IntClaw][Gateway] TLS 模式：已恢复证书验证设置`);
     }
   }
 }
@@ -99,7 +131,9 @@ export const intclawChannel = {
         appSecret: { type: 'string', description: 'IntClaw App Secret' },
         ackText: { type: 'string', default: '🫡 任务已接收，处理中...', description: 'Ack text when asyncMode is enabled' },
         sessionTimeout: { type: 'number', default: 1800000, description: 'Session timeout in ms (default 30min)' },
-        systemPrompt: { type: 'string', default: '', description: 'Custom system prompt' }
+        systemPrompt: { type: 'string', default: '', description: 'Custom system prompt' },
+        gatewayToken: { type: 'string', default: '', description: 'Gateway auth token' },
+        gatewayBaseUrl: { type: 'string', default: '', description: 'Custom Gateway URL' }
       },
       required: ['appKey', 'appSecret'],
     },
@@ -109,7 +143,9 @@ export const intclawChannel = {
       appSecret: { label: 'App Secret', sensitive: true },
       ackText: { label: 'Ack Text' },
       sessionTimeout: { label: 'Session Timeout' },
-      systemPrompt: { label: 'System Prompt' }
+      systemPrompt: { label: 'System Prompt' },
+      gatewayToken: { label: 'Gateway Token', sensitive: true },
+      gatewayBaseUrl: { label: 'Gateway Base URL' }
     },
   },
 
@@ -261,7 +297,7 @@ export const intclawChannel = {
           try {
             // const msg = JSON.parse(data.toString());
             const msg = {
-              type: 'auth_response',
+              type: 'incoming_message',
               payload: {
                 peerKind: 'direct',
                 peerId: "1",
@@ -317,6 +353,11 @@ export const intclawChannel = {
 
         log?.info?.(`[IntClaw] Starting gateway stream for peerId=${peerIdOut}`);
 
+        const systemPrompt = accountInfo.config?.systemPrompt;
+        const systemPrompts = systemPrompt ? [systemPrompt] : [];
+        const gatewayAuth = accountInfo.config?.gatewayToken || accountInfo.config?.gatewayPassword || '';
+        const gatewayBaseUrl = accountInfo.config?.gatewayBaseUrl || '';
+
         try {
           const replyId = `intclaw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -324,7 +365,12 @@ export const intclawChannel = {
             userContent,
             sessionKey,
             gatewayPort: cfg?.gateway?.port,
-            agentId: 'main',
+            agentId: accountInfo.accountId === '__default__' ? 'main' : accountInfo.accountId,
+            systemPrompts,
+            gatewayAuth,
+            gatewayBaseUrl,
+            memoryUser: peerIdOut,
+            log
           })) {
             sendStreamChunk(wsTarget, payload, accountInfo, chunk, false, replyId);
           }
