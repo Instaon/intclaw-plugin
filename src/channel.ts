@@ -97,64 +97,12 @@ export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
   configSchema: {
     schema: {
       type: "object",
-      additionalProperties: false,
       properties: {
         enabled: { type: "boolean" },
         defaultAccount: { type: "string" },
         clientId: { oneOf: [{ type: "string" }, { type: "number" }] },
         clientSecret: secretInputJsonSchema,
-        enableMediaUpload: { type: "boolean" },
         systemPrompt: { type: "string" },
-        dmPolicy: { type: "string", enum: ["open", "pairing", "allowlist"] },
-        allowFrom: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
-        groupPolicy: { type: "string", enum: ["open", "allowlist", "disabled"] },
-        groupAllowFrom: {
-          type: "array",
-          items: { oneOf: [{ type: "string" }, { type: "number" }] },
-        },
-        requireMention: { type: "boolean" },
-        groupSessionScope: {
-          type: "string",
-          enum: ["group", "group_sender"],
-        },
-        separateSessionByConversation: { type: "boolean" },
-        sharedMemoryAcrossConversations: { type: "boolean" },
-        historyLimit: { type: "integer", minimum: 0 },
-        dmHistoryLimit: { type: "integer", minimum: 0 },
-        textChunkLimit: { type: "integer", minimum: 1 },
-        mediaMaxMb: { type: "number", minimum: 0 },
-        typingIndicator: { type: "boolean" },
-        resolveSenderNames: { type: "boolean" },
-        tools: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            media: { type: "boolean" },
-          },
-        },
-        groups: {
-          type: "object",
-          additionalProperties: {
-            type: "object",
-            properties: {
-              requireMention: { type: "boolean" },
-              tools: {
-                type: "object",
-                properties: {
-                  allow: { type: "array", items: { type: "string" } },
-                  deny: { type: "array", items: { type: "string" } },
-                },
-              },
-              enabled: { type: "boolean" },
-              allowFrom: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
-              systemPrompt: { type: "string" },
-              groupSessionScope: {
-                type: "string",
-                enum: ["group", "group_sender"],
-              },
-            },
-          },
-        },
         accounts: {
           type: "object",
           additionalProperties: {
@@ -164,33 +112,7 @@ export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
               name: { type: "string" },
               clientId: { oneOf: [{ type: "string" }, { type: "number" }] },
               clientSecret: secretInputJsonSchema,
-              enableMediaUpload: { type: "boolean" },
               systemPrompt: { type: "string" },
-              dmPolicy: { type: "string", enum: ["open", "pairing", "allowlist"] },
-              allowFrom: { type: "array", items: { oneOf: [{ type: "string" }, { type: "number" }] } },
-              groupPolicy: { type: "string", enum: ["open", "allowlist", "disabled"] },
-              groupAllowFrom: {
-                type: "array",
-                items: { oneOf: [{ type: "string" }, { type: "number" }] },
-              },
-              requireMention: { type: "boolean" },
-              groupSessionScope: {
-                type: "string",
-                enum: ["group", "group_sender"],
-              },
-              separateSessionByConversation: { type: "boolean" },
-              sharedMemoryAcrossConversations: { type: "boolean" },
-              historyLimit: { type: "integer", minimum: 0 },
-              textChunkLimit: { type: "integer", minimum: 1 },
-              mediaMaxMb: { type: "number", minimum: 0 },
-              typingIndicator: { type: "boolean" },
-              tools: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  media: { type: "boolean" },
-                },
-              },
             },
           },
         },

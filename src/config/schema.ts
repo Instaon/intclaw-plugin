@@ -47,24 +47,24 @@ export const IntclawGroupSchema = z
   .strict();
 
 const IntclawSharedConfigShape = {
-  dmPolicy: DmPolicySchema.optional(),
+  dmPolicy: DmPolicySchema.optional().default("open"),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-  groupPolicy: GroupPolicySchema.optional(),
+  groupPolicy: GroupPolicySchema.optional().default("open"),
   groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-  requireMention: z.boolean().optional(),
+  requireMention: z.boolean().optional().default(true),
   groups: z.record(z.string(), IntclawGroupSchema.optional()).optional(),
   historyLimit: z.number().int().min(0).optional(),
   dmHistoryLimit: z.number().int().min(0).optional(),
   textChunkLimit: z.number().int().positive().optional(),
   mediaMaxMb: z.number().positive().optional(),
   tools: IntclawToolsConfigSchema,
-  typingIndicator: z.boolean().optional(),
-  resolveSenderNames: z.boolean().optional(),
-  separateSessionByConversation: z.boolean().optional(),
-  sharedMemoryAcrossConversations: z.boolean().optional(),
-  groupSessionScope: GroupSessionScopeSchema,
-  asyncMode: z.boolean().optional(),
-  ackText: z.string().optional(),
+  typingIndicator: z.boolean().optional().default(true),
+  resolveSenderNames: z.boolean().optional().default(true),
+  separateSessionByConversation: z.boolean().optional().default(true),
+  sharedMemoryAcrossConversations: z.boolean().optional().default(false),
+  groupSessionScope: GroupSessionScopeSchema.optional().default("group"),
+  asyncMode: z.boolean().optional().default(false),
+  ackText: z.string().optional().default("🫡 任务已接收，处理中..."),
   endpoint: z.string().optional(), // DWClient gateway endpoint
   debug: z.boolean().optional(), // DWClient debug mode
 };
@@ -93,12 +93,6 @@ export const IntclawConfigSchema = z
     enableMediaUpload: z.boolean().optional(),
     systemPrompt: z.string().optional(),
     ...IntclawSharedConfigShape,
-    dmPolicy: DmPolicySchema.optional().default("open"),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
-    requireMention: z.boolean().optional().default(true),
-    separateSessionByConversation: z.boolean().optional().default(true),
-    sharedMemoryAcrossConversations: z.boolean().optional().default(false),
-    groupSessionScope: GroupSessionScopeSchema.optional().default("group"),
     // Multi-account configuration
     accounts: z.record(z.string(), IntclawAccountConfigSchema.optional()).optional(),
   })

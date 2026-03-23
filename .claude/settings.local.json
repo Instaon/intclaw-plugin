@@ -17,7 +17,13 @@
       "Bash(ls -la /Users/bianhui/Documents/Code/intclaw-plugin/../OpenClaw* 2>/dev/null || ls -la /Users/bianhui/Documents/Code/ | grep -i openclaw、)",
       "Bash(find \"/Users/bianhui/Documents/Code/openclaw\" -name \"*.ts\" -exec grep -l \"interface ChannelPlugin\" {} \\\\; 2>/dev/null | head -5)",
       "mcp__zhipu-web-search-sse__webSearchStd",
-      "Bash(npm config:*)"
+      "Bash(npm config:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls -la tsconfig*.json)",
+      "Bash(node -e \":*)",
+      "Bash(npx jiti:*)",
+      "Bash(npx:*)"
     ]
   }
 }

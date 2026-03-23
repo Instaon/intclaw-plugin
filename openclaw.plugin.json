@@ -5,7 +5,7 @@
   "description": "IntClaw (IntClaw) messaging channel via Stream mode with ai market streaming",
   "author": "IntClaw Real Team",
   "main": "index.ts",
-  "channels": ["intclaw"],
+  "channels": ["intclaw-connector"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
