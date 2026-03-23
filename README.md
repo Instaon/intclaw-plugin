@@ -1,234 +1,435 @@
-# @insta-dev01/intclaw
+<div align="center">
+  <img alt="IntClaw" src="docs/images/intclaw.svg" width="72" height="72" />
+  <h1>IntClaw OpenClaw 官方连接器</h1>
+  <p>将IntClaw机器人连接到 OpenClaw Gateway，支持 AI Card 流式响应和会话管理</p>
+  
+  <p>
+    <a href="README.en.md">English</a> •
+    <a href="CHANGELOG.md">更新日志</a>
+  </p>
+</div>
 
-OpenClaw plugin for IntClaw services - provides WebSocket-based channel integration connecting OpenClaw to:
+---
 
-- IntClaw Community Platform (引态社区平台)
-- IntClaw Message Channel (引态消息通道)
-- IntClaw Agent Collaboration Engine (引态智能体协作引擎)
-- IntClaw Claw Hub Services (引态 Claw Hub 服务)
+## 📋 目录
 
-## Overview
+- [前置要求](#前置要求)
+- [快速开始](#快速开始)
+- [功能特性](#功能特性)
+- [配置说明](#配置说明)
+- [常见问题](#常见问题)
+- [进阶主题](#进阶主题)
+- [许可证](#许可证)
 
-This plugin implements a bidirectional WebSocket channel that:
-- Connects to IntClaw servers using WebSocket protocol
-- Authenticates via API Key/Token
-- Exchanges JSON-formatted messages
-- Supports both direct messages and group messages
-- Handles automatic reconnection on connection loss
+---
 
-## Installation
+## 前置要求
+
+开始之前，请确保你已经：
+
+> 本插件作为 OpenClaw Gateway 插件使用，一般无需你单独安装或管理 Node.js 运行时。
+
+### 1. OpenClaw Gateway
+
+- **官方网站**：https://openclaw.ai/
+- **安装说明**：按照官方指南安装 OpenClaw
+- **验证安装**：
+  ```bash
+  openclaw gateway status
+  ```
+  预期输出：`✓ Gateway is running on http://127.0.0.1:18789`
+
+### 2. IntClaw企业账号
+
+- 你需要一个IntClaw企业账号来创建企业内部应用
+- 官方网站：https://www.intclaw.com/
+
+---
+
+## 快速开始
+
+> 💡 **目标**：5 分钟内让你的IntClaw机器人运行起来
+
+### 操作系统支持
+
+- macOS / Linux：使用默认的 Shell 终端（zsh、bash 等）。
+- Windows：
+  - 推荐使用 **PowerShell** 或 **Windows Terminal**。
+  - OpenClaw 配置文件路径默认为：`C:\Users\<你的用户名>\.openclaw\openclaw.json`。
+
+下文中出现的 `~/.openclaw/openclaw.json`，在 Windows 上等价于以上路径。
+
+### 步骤 1：安装插件
 
 ```bash
-# Install from npm
-openclaw plugins install @insta-dev01/intclaw
+# 推荐：从 npm 安装
+openclaw plugins install @intclaw-real-ai/intclaw-connector
 
-# Install from local directory (for development)
-openclaw plugins install /path/to/intclaw
-
-# Install dependencies
-cd /path/to/intclaw
-pnpm install
+# 或者：从 Git 安装
+openclaw plugins install https://github.com/IntClaw-Real-AI/intclaw-openclaw-connector.git
 ```
 
-## Configuration
+**验证安装**：
+```bash
+openclaw plugins list
+```
+你应该看到 `✓ IntClaw Channel (v0.8.0) - loaded`
 
-### Method 1: Interactive Setup Wizard (Recommended)
+---
 
-Run the setup wizard and follow the prompts:
+### 步骤 2：创建IntClaw机器人
+
+#### 3.1 创建应用
+
+1. 访问 [IntClaw开放平台](https://open-dev.intclaw.com/)
+2. 点击 **"应用开发"**
+
+![创建应用](docs/images/image-1.png)
+
+#### 3.2 添加机器人能力
+
+1. 在应用详情页，点击 一键创建OpenClaw机器人应用
+
+![创建OpenClaw机器人应用](docs/images/image-2.png)
+
+#### 3.3 获取凭证
+
+1. 完成创建并获取 **"凭证与基础信息"**
+2. 复制你的 **AppKey**（Client ID）
+3. 复制你的 **AppSecret**（Client Secret）
+
+![完成创建](docs/images/image-3.png)
+
+![获取凭证](docs/images/image-4.png)
+
+> ⚠️ **重要**：Client ID和 Client Secret是机器人的唯一凭证。请合理保存。
+
+---
+
+### 步骤 3：配置 OpenClaw
+
+你有三种方式配置连接器：
+
+#### 方式 A：配置向导（推荐新手使用）
+
+> 你可以直接复制粘贴下面的命令，在终端中运行配置向导。
 
 ```bash
 openclaw channels add
 ```
 
-Select **IntClaw** from the channel list, then enter:
-- **WebSocket Server URL**: Your IntClaw server WebSocket URL (e.g., `wss://api.intclaw.example.com/ws`)
-- **API Key**: Your API key for authentication
+选择 **"IntClaw (IntClaw)"**，然后按提示输入：
+- `clientId`（AppKey）
+- `clientSecret`（AppSecret）
 
-The wizard will guide you through additional optional settings like DM policy and group policy.
+#### 方式 B：编辑配置文件
 
-### Method 2: Configuration File
+编辑配置文件：
 
-Edit your OpenClaw config file at `~/.openclaw/openclaw.json`:
+- macOS / Linux：`~/.openclaw/openclaw.json`
+- Windows：`C:\Users\<你的用户名>\.openclaw\openclaw.json`
 
-```json5
+```json
 {
-  channels: {
-    intclaw: {
-      enabled: true,
-      wsUrl: "wss://api.intclaw.example.com/ws",
-      apiKey: "your-api-key-here",
-      dmPolicy: "pairing",
-      groupPolicy: "allowlist",
-    },
-  },
+  "channels": {
+    "intclaw-connector": {
+      "enabled": true,
+      "clientId": "dingxxxxxxxxx",
+      "clientSecret": "your_app_secret"
+    }
+  }
 }
 ```
 
-After editing, restart the gateway:
+> 💡 **提示**：如果文件已有内容，在 `channels` 节点下添加 `intclaw-connector` 部分即可。
+
+---
+
+### 步骤 4：重启并测试
 
 ```bash
+# 重启 OpenClaw Gateway
 openclaw gateway restart
+
+# 实时查看日志
+openclaw logs --follow
 ```
 
-### Method 3: Environment Variables
+**测试你的机器人**：
+1. 打开IntClaw App
+2. 在联系人列表中找到你的机器人
+3. 发送消息：`你好`
+4. 你应该在 10 秒内收到回复
 
-Set environment variables before starting OpenClaw:
+---
 
-```bash
-export INTCLAW_WS_URL="wss://api.intclaw.example.com/ws"
-export INTCLAW_API_KEY="your-api-key-here"
-openclaw gateway
-```
+## 功能特性
 
-**Note**: Configuration file values take precedence over environment variables.
+### ✅ 核心功能
 
-### Full Configuration Options
+- **AI Card 流式响应** - 打字机效果，实时流式显示回复
+- **会话管理** - 多轮对话，保持上下文
+- **会话隔离** - 私聊、群聊、不同群之间会话独立
+- **自动会话重置** - 30 分钟无活动后自动开启新会话
+- **手动会话重置** - 发送 `/new` 或 `新会话` 清空对话历史
+- **图片自动上传** - 本地图片路径自动上传到IntClaw
+- **主动发送消息** - 程序化地向用户或群发送消息
+- **富媒体接收** - 接收并处理 JPEG/PNG 图片，传递给视觉模型
+- **文件附件提取** - 解析 .docx、.pdf、文本文件和二进制文件
+- **音频消息支持** - 发送多种格式的音频消息（mp3、wav、amr、ogg）
+- **IntClaw文档 API** - 创建、追加、搜索和列举IntClaw文档
+- **多 Agent 路由** - 将多个机器人连接到不同的 Agent，实现专业化服务
+- **Markdown 表格转换** - 自动将 Markdown 表格转换为IntClaw兼容格式
+- **异步模式** - 立即确认消息，后台处理（可选）
 
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `enabled` | boolean | Enable/disable the channel | `true` |
-| `wsUrl` | string | WebSocket server URL | **Required** |
-| `apiKey` | string | API key for authentication | **Required** |
-| `reconnectInterval` | number | Reconnection interval (ms) | `5000` |
-| `dmPolicy` | string | DM policy (`pairing`, `allowlist`, `open`, `disabled`) | `pairing` |
-| `allowFrom` | array | DM allowlist (peer IDs) | - |
-| `groupPolicy` | string | Group policy (`allowlist`, `open`, `disabled`) | `allowlist` |
-| `groupAllowFrom` | array | Group allowlist (peer IDs) | - |
-| `groups` | object | Per-group configuration | - |
+---
 
-### Multi-Account Configuration
+## 配置说明
+
+### 基础配置
+
+| 选项 | 环境变量 | 说明 |
+|------|---------|------|
+| `clientId` | — | IntClaw AppKey |
+| `clientSecret` | — | IntClaw AppSecret |
+
+### 会话管理
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `separateSessionByConversation` | `true` | 私聊/群聊分别维护会话 |
+| `groupSessionScope` | `group` | 群聊会话范围：`group`（共享）或 `group_sender`（每人独立） |
+| `sharedMemoryAcrossConversations` | `false` | 是否在不同会话间共享记忆 |
+
+### 会话路由策略（`pmpolicy` / `groupPolicy`）
+
+当前版本已支持会话路由/消息策略相关配置（包含 `pmpolicy`、`groupPolicy`），**无需删除**。如你在历史配置中已经设置了这些字段，可以继续保留并按需调整。
+
+> 说明：不同版本/上游可能对字段命名有差异；本连接器侧同时支持并会按策略生效（如 `dmPolicy`/`groupPolicy` 的默认值为 `open`）。
+
+### 异步模式
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `asyncMode` | `false` | 启用异步模式处理长时间任务 |
+| `ackText` | `🫡 任务已接收，处理中...` | 确认消息文本 |
+
+
+---
+
+## 常见问题
+
+### 机器人不回复
+
+**症状**：机器人不回复消息
+
+**解决方案**：
+1. 检查插件状态：`openclaw plugins list`
+2. 检查网关状态：`openclaw gateway status`
+3. 查看日志：`openclaw logs --follow`
+4. 确认应用已在IntClaw开放平台发布
+
+---
+
+### HTTP 401 错误
+
+**症状**：错误信息显示 "401 Unauthorized"
+
+**原因**：Gateway 认证失败
+
+**解决方案**：
+
+升级到最新版本
+
+---
+
+### Stream 连接 400 错误
+
+**症状**：日志显示 "Request failed with status code 400"
+
+**常见原因**：
+
+| 原因 | 解决方案 |
+|------|----------|
+| 应用未发布 | 前往IntClaw开放平台 → 版本管理 → 发布 |
+| 凭证错误 | 检查 `clientId`/`clientSecret` 是否有拼写错误或多余空格 |
+| 非 Stream 模式 | 确认机器人配置为 Stream 模式（不是 Webhook） |
+| IP 白名单限制 | 检查应用是否设置了 IP 白名单 |
+
+**验证步骤**：
+
+1. **检查应用状态**：
+   - 登录 [IntClaw开放平台](https://open-dev.intclaw.com/)
+   - 确认应用已发布
+   - 确认机器人已启用且为 Stream 模式
+
+2. **重新发布应用**：
+   - 修改任何配置后，必须点击 **保存** → **发布**
+
+---
+
+## 进阶主题
+
+### 多 Agent 配置
+
+配置多个机器人连接到不同的 Agent：
 
 ```json5
 {
-  channels: {
-    intclaw: {
-      enabled: true,
-      defaultAccount: "main",
-      accounts: {
-        main: {
-          wsUrl: "wss://main.intclaw.example.com/ws",
-          apiKey: "main-api-key",
-          enabled: true,
-        },
-        secondary: {
-          wsUrl: "wss://secondary.intclaw.example.com/ws",
-          apiKey: "secondary-api-key",
-          enabled: true,
-        },
+  "agents": {
+    "list": [
+      {
+        "id": "ding-bot1",
+        "name": "IntClaw客服机器人",
+        "model": "your-model-config",
+        "workspace": "~/.openclaw/workspace-bot1",
+        "identity": {
+          "name": "客服小助手",
+          "theme": "专业客服",
+          "emoji": "🤝"
+        }
+        // 其他 agent 配置...
       },
-    },
+      {
+        "id": "ding-bot2",
+        "name": "IntClaw技术支持机器人",
+        "model": "your-model-config",
+        "workspace": "~/.openclaw/workspace-bot2",
+        "identity": {
+          "name": "技术专家",
+          "theme": "技术支持",
+          "emoji": "🔧"
+        }
+        // 其他 agent 配置...
+      }
+    ]
   },
+  "channels": {
+    "intclaw-connector": {
+      "enabled": true,
+      "accounts": {
+        "bot1": {
+          "enabled": true,
+          "clientId": "ding_bot1_app_key",
+          "clientSecret": "bot1_secret"
+        },
+        "bot2": {
+          "enabled": true,
+          "clientId": "ding_bot2_app_key",
+          "clientSecret": "bot2_secret"
+        }
+      }
+    }
+  },
+  "bindings": [
+    {
+      "agentId": "ding-bot1",
+      "match": {
+        "channel": "intclaw-connector",
+        "accountId": "bot1"
+      }
+    },
+    {
+      "agentId": "ding-bot2",
+      "match": {
+        "channel": "intclaw-connector",
+        "accountId": "bot2"
+      }
+    }
+  ]
 }
 ```
 
-## Message Protocol
+更多详情请参考 [OpenClaw 多 Agent 配置指南](https://gist.github.com/smallnest/c5c13482740fd179e40070e620f66a52)。
 
-### Incoming Messages (IntClaw → OpenClaw)
+---
 
-```json
-{
-  "type": "incoming_message",
-  "payload": {
-    "id": "msg_1234567890",
-    "accountId": "default",
-    "peerId": "user_abc",
-    "peerKind": "direct",
-    "peerName": "Alice",
-    "text": "Hello from IntClaw!",
-    "timestamp": 1704067200000,
-    "threadId": null,
-    "replyToId": null
-  }
-}
+### 会话命令
+
+用户可以发送以下命令清理对话历史，重新开始会话：
+
+- `/new`、`/reset`、`/clear`
+- `新会话`、`重新开始`、`清空对话`
+
+---
+
+### IntClaw文档（Docs）与 MCP（`docs.*`）
+
+IntClaw文档能力（`docs.*`，包含 `docs.create` / `docs.append` / `docs.search` / `docs.list` / `docs.read`）依赖 MCP（Model Context Protocol）提供底层 tool。你需要先在 OpenClaw 的 Gateway/Agent 侧启用对应的 MCP Server/Tool，然后上述 `docs.*` 才能正常工作。
+
+- **获取 MCP Server/Tool**：可通过 [IntClaw MCP 市场](https://mcp.intclaw.com/) 安装启用（或你们团队维护的 MCP 市场）；也可以选择同类的“IntClaw Docs Read / IntClaw Docs Reader”能力并接入到 OpenClaw。
+- **配置位置**：通常在 **Gateway 或 Agent 的工具配置**中完成（而不是在连接器里）。
+- **生效方式**：配置完成后重启 Gateway，并确认该 tool 已对目标 Agent 暴露。
+
+参考（OpenClaw 官方配置文档）：
+- `https://docs.openclaw.ai/configuration`
+- `https://docs.openclaw.ai/gateway/configuration-reference`
+
+从你的 Agent 中创建和管理IntClaw文档：
+
+```javascript
+// 创建文档
+intclaw-connector.docs.create({
+  spaceId: "your-space-id",
+  title: "测试文档",
+  content: "# 测试内容"
+})
+
+// 追加内容
+intclaw-connector.docs.append({
+  docId: "your-doc-id",
+  markdownContent: "\n## 追加的内容"
+})
+
+// 搜索文档
+intclaw-connector.docs.search({
+  keyword: "搜索关键词"
+})
+
+// 列举文档
+intclaw-connector.docs.list({
+  spaceId: "your-space-id"
+})
 ```
 
-### Outgoing Messages (OpenClaw → IntClaw)
+---
 
-```json
-{
-  "type": "outgoing_message",
-  "payload": {
-    "id": "intclaw_1704067200000_abc123",
-    "accountId": "default",
-    "peerId": "user_abc",
-    "peerKind": "direct",
-    "text": "Hello from OpenClaw!",
-    "timestamp": 1704067200000,
-    "threadId": null,
-    "replyToId": null
-  }
-}
-```
-
-### Authentication Flow
-
-1. Client connects with API key in header
-2. Client sends `auth_request`:
-```json
-{
-  "type": "auth_request",
-  "apiKey": "your-api-key",
-  "timestamp": 1704067200000
-}
-```
-3. Server responds with `auth_response`:
-```json
-{
-  "type": "auth_response",
-  "success": true,
-  "timestamp": 1704067200000
-}
-```
-
-## Development
-
-### Requirements
-
-- Node.js 22.x+
-- pnpm 10.25.0+
-
-### Project Structure
+## 项目结构
 
 ```
-intclaw-plugin/
-├── openclaw.plugin.json    # Plugin manifest
-├── package.json            # Node.js package config
+intclaw-openclaw-connector/
 ├── src/
-│   ├── index.js           # Plugin entry point
-│   └── channel/
-│       └── IntClawChannel.js  # Channel implementation
-└── skills/                # Optional skills
+│   ├── core/           # Core connector logic
+│   ├── services/       # IntClaw API services
+│   ├── utils/          # Utility functions
+│   └── types/          # TypeScript type definitions
+├── docs/
+│   └── images/         # Documentation images
+├── openclaw.plugin.json # Plugin manifest
+├── package.json        # npm dependencies
+└── LICENSE
 ```
 
-### Running Locally
+---
 
-```bash
-# Install dependencies
-pnpm install
+## 依赖
 
-# The plugin will be loaded by OpenClaw gateway
-# No standalone run mode
-```
+| 包 | 用途 |
+|----|------|
+| `dingtalk-stream` | IntClaw Stream 协议客户端 |
+| `axios` | HTTP 客户端 |
+| `mammoth` | Word 文档（.docx）解析 |
+| `pdf-parse` | PDF 文档解析 |
 
-## Troubleshooting
+---
 
-### Connection Issues
+## 许可证
 
-1. Check WebSocket URL is correct and accessible
-2. Verify API key is valid
-3. Check firewall/network settings
-4. Review logs: `openclaw logs --follow`
+[MIT](LICENSE)
 
-### Authentication Failures
+---
 
-1. Verify API key matches server expectations
-2. Check API key hasn't expired
-3. Ensure API key has required permissions
+## 支持
 
-## License
-
-ISC
-
-## Development Guide
-
-- [OpenClaw Plugin Development Guide](Development%20Guide%20docs/)
+- **问题反馈**：[GitHub Issues](https://github.com/IntClaw-Real-AI/intclaw-openclaw-connector/issues)
+- **更新日志**：[CHANGELOG.md](CHANGELOG.md)

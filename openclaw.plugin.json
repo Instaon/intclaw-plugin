@@ -1,19 +1,16 @@
 {
-  "id": "intclaw",
-  "name": "IntClaw Plugin",
-  "description": "OpenClaw plugin for IntClaw services - WebSocket-based channel integration for Community Platform, Message Channel, and Agent Collaboration Engine",
-  "version": "1.0.11",
-  "kind": "channel",
-  "channels": ["intclaw"],
+  "id": "intclaw-connector",
+  "name": "IntClaw Channel",
+  "version": "0.8.1",
+  "description": "IntClaw (IntClaw) messaging channel via Stream mode with AI Card streaming",
+  "author": "IntClaw Real Team",
+  "main": "index.ts",
+  "channels": ["intclaw-connector"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "enabled": {
-        "type": "boolean",
-        "description": "Enable/disable the IntClaw channel",
-        "default": true
-      },
+      "enabled": { "type": "boolean", "default": true },
       "appKey": {
         "type": "string",
         "description": "APP key for authentication with IntClaw server"
@@ -44,52 +41,7 @@
           "skills/",
           "canvas/"
         ]
-      },
-      "gatewayToken": {
-        "type": "string",
-        "description": "Gateway auth token"
-      },
-      "gatewayBaseUrl": {
-        "type": "string",
-        "description": "Custom Gateway URL"
       }
-    }
-  },
-  "uiHints": {
-    "appKey": {
-      "label": "API Key",
-      "placeholder": "Enter your API key",
-      "helpText": "API key for authenticating with the IntClaw server",
-      "sensitive": true,
-      "order": 1
-    },
-    "appSecret": {
-      "label": "API Secret",
-      "placeholder": "Enter your API secret",
-      "helpText": "API secret for authenticating with the IntClaw server",
-      "sensitive": true,
-      "order": 2
-    },
-    "cloudTwin": {
-      "label": "Cloud Twin",
-      "helpText": "Enable cloud twin mode",
-      "order": 3
-    },
-    "cloudTwinUploadAllowlist": {
-      "label": "Cloud Twin Upload Allowlist",
-      "helpText": "Allow uploading files for Twin",
-      "order": 4
-    },
-    "gatewayToken": {
-      "label": "Gateway Token",
-      "helpText": "Gateway token",
-      "sensitive": true,
-      "order": 5
-    },
-    "gatewayBaseUrl": {
-      "label": "Gateway Base URL",
-      "helpText": "Custom Gateway URL",
-      "order": 6
     }
   }
 }

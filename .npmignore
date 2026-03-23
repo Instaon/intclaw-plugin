@@ -1,59 +1,71 @@
-# Source files not needed in package
-.env
-.env.local
-.env.*.local
-
-# Development files
-.claude/
-.agent/
+# Dependencies
 node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
 
-# Development documentation
-Development Guide docs/
-docs/
-需求文档.md
-
-# Test files
-src/__tests__/*
-src/**/__tests__/*
-src/**/*.test.js
-src/**/*.spec.js
-__tests__/
-**/*.test.js
-**/*.spec.js
+# Development & Testing
+tests/
+*.test.ts
+*.spec.ts
+test.ts
+test-*.ts
+test-*.mjs
 coverage/
+.nyc_output/
+vitest.config.ts
 
-# Git files
-.git/
-.gitignore
-.github/
+# Environment files
+.env
+.env.*
+!.env.example
 
-# Editor files
-.vscode/
+# IDE & Editor
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
 
-# Build files that should be excluded
+# Build artifacts
+dist/
+build/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
+pnpm-debug.log*
 
-# Lock files (handled by packageManager)
-# pnpm-lock.yaml - keep for reproducibility
+# Git
+.git/
+.gitignore
+.github/
+
+# CI/CD
+.aone_copilot/
+AGENTS.md
+
+# Python (if any)
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+
+# Documentation (keep README and LICENSE)
+docs/
+CHANGELOG.md
+README.en.md
+
+# Development scripts
+install-beta.sh
+rename.js
 
 # Temporary files
+tmp/
 *.tmp
-.cache/
-.parcel-cache/
 
-# Optional npmrc files
-.npmrc
-
-# CLAUDE.md is for Claude Code development
-CLAUDE.md
+# TypeScript (keep source files)
+# tsconfig.json - needed for type consumers
