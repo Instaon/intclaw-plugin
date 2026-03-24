@@ -432,11 +432,11 @@ export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
         logger.info(`account 解析完成: ${account.accountId}, enabled=${account.enabled}, configured=${account.configured}`);
         
         ctx.setStatus({ accountId: ctx.accountId, port: null });
-        ctx.log?.info(
+        await ctx.log?.info?.(
           `starting intclaw-connector[${ctx.accountId}] (mode: stream)`,
         );
         logger.info(`准备调用 monitorIntclawProvider`);
-        
+
         const result = await monitorIntclawProvider({
           config: ctx.cfg,
           runtime: ctx.runtime,

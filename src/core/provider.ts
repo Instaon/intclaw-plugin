@@ -52,15 +52,18 @@ export async function monitorIntclawProvider(opts: MonitorIntclawOpts = {}): Pro
     import("./message-handler"),
     import("./connection"),
   ]);
-  
+
   const { resolveIntclawAccount, listEnabledIntclawAccounts } = accountsModule;
   const { handleIntClawMessage } = monitorAccountModule;
   const { monitorSingleAccount, resolveReactionSyntheticEvent } = monitorSingleModule;
 
   if (opts.accountId) {
     const account = resolveIntclawAccount({ cfg, accountId: opts.accountId });
+    log?.info?.(
+      `账号状态检查：accountId="${opts.accountId}", enabled=${account.enabled}, configured=${account.configured}`,
+    );
     if (!account.enabled || !account.configured) {
-      throw new Error(`IntClaw account "${opts.accountId}" not configured or disabled`);
+      throw new Error(`IntClaw account "${opts.accountId}" not configured or disabled (enabled=${account.enabled}, configured=${account.configured})`);
     }
     return monitorSingleAccount({
       cfg,

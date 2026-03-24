@@ -23,7 +23,9 @@
       "Bash(ls -la tsconfig*.json)",
       "Bash(node -e \":*)",
       "Bash(npx jiti:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Bash(ls -la /Users/bianhui/Documents/Code/intclaw-plugin/*.md)",
+      "Bash(ls /Users/bianhui/Documents/Code/intclaw-plugin/*.md)"
     ]
   }
 }

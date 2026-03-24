@@ -72,7 +72,7 @@ export async function monitorSingleAccount(
   // 保存 cfg 以便传递给 messageHandler
   const clawdbotConfig = cfg;
   const log = runtime?.log;
-  
+
   // 创建 debug logger（仅在 debug 模式下输出 info/debug 日志）
   const logger = createLoggerFromConfig(account.config, `IntClaw:${accountId}`);
 
@@ -119,22 +119,23 @@ export async function monitorSingleAccount(
           "x-app-key": String(account.clientId),
           "x-app-secret": String(account.clientSecret),
         };
-        
+
         logger.info(`开始连接 WebSocket: ${endpoint}`);
         const ws = new WebSocket(endpoint, { headers });
-        
+
         const onOpen = () => {
           ws.removeListener('error', onError);
           client.socket = ws;
           rebindListeners();
+          logger.info(`[WS连接] 成功: ${endpoint}`);
           resolve();
         };
-        
+
         const onError = (err: any) => {
           ws.removeListener('open', onOpen);
+          logger.error(`[WS连接] 失败: ${endpoint}, 错误: ${err.message || err}`);
           reject(err);
         };
-        
         ws.once('open', onOpen);
         ws.once('error', onError);
       });
@@ -326,6 +327,7 @@ export async function monitorSingleAccount(
     client.socket.on("message", (data: any) => {
       try {
         const payload = Object.prototype.toString.call(data) === '[object Buffer]' ? data.toString() : data as string;
+        logger.info(`[WS收到] 包: ${payload}`);
         const msg = JSON.parse(payload);
         
         // 检查 disconnect 类型
