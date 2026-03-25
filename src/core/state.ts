@@ -12,13 +12,15 @@
  * - stopIntclawMonitorState: 停止单个或多个账号的消息流
  * - 测试工具：clearIntclawWebhookRateLimitStateForTest 等
  */
-const monitorState = new Map<string, { running: boolean; abortController?: AbortController }>();
+import type { IntclawStreamClient } from "../types/index.ts";
 
-export function setIntclawMonitorState(accountId: string, state: { running: boolean; abortController?: AbortController }): void {
+const monitorState = new Map<string, { running: boolean; abortController?: AbortController; client?: IntclawStreamClient }>();
+
+export function setIntclawMonitorState(accountId: string, state: { running: boolean; abortController?: AbortController; client?: IntclawStreamClient }): void {
   monitorState.set(accountId, state);
 }
 
-export function getIntclawMonitorState(accountId: string): { running: boolean; abortController?: AbortController } | undefined {
+export function getIntclawMonitorState(accountId: string): { running: boolean; abortController?: AbortController; client?: IntclawStreamClient } | undefined {
   return monitorState.get(accountId);
 }
 

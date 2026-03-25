@@ -14,6 +14,7 @@ import {
   processFileMarkers,
   uploadMediaToIntClaw,
 } from "./media.ts";
+import { sendViaWSAdapter } from "./messaging/ws-out-adapter.ts";
 
 // ============ 常量 ============
 // 注意：AI Card 相关的类型和函数已移至 ./messaging/card.ts，通过上方 import 引入
@@ -64,6 +65,19 @@ export async function sendMarkdownMessage(
   if (options.atUserId)
     body.at = { atUserIds: [options.atUserId], isAtAll: false };
 
+  // 尝试使用 WebSocket (Open Responses) 发送
+  if (options.accountId && options.conversationId) {
+    const wsSuccess = await sendViaWSAdapter(
+      options.accountId,
+      { conversationId: options.conversationId },
+      body,
+      { log: options.log }
+    );
+    if (wsSuccess) {
+      return { ok: true, viaWS: true };
+    }
+  }
+
   return (
     await intclawHttp.post(sessionWebhook, body, {
       headers: {
@@ -87,6 +101,19 @@ export async function sendTextMessage(
   const body: any = { msgtype: "text", text: { content: text } };
   if (options.atUserId)
     body.at = { atUserIds: [options.atUserId], isAtAll: false };
+
+  // 尝试使用 WebSocket (Open Responses) 发送
+  if (options.accountId && options.conversationId) {
+    const wsSuccess = await sendViaWSAdapter(
+      options.accountId,
+      { conversationId: options.conversationId },
+      body,
+      { log: options.log }
+    );
+    if (wsSuccess) {
+      return { ok: true, viaWS: true };
+    }
+  }
 
   return (
     await intclawHttp.post(sessionWebhook, body, {

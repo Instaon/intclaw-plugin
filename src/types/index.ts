@@ -50,3 +50,12 @@ export type IntclawProbeResult = BaseProbeResult<string> & {
   clientId?: string;
   botName?: string;
 };
+
+export interface IntclawStreamClient {
+  socket: any; // Type is roughly import('ws').WebSocket
+  connect: () => Promise<void>;
+  disconnect: () => Promise<void>;
+  socketCallBackResponse: (messageId: string, payload: any) => void;
+  registerCallbackListener: (topic: string, handler: (res: any) => void) => void;
+  on: (evt: string, cb: any) => void;
+}

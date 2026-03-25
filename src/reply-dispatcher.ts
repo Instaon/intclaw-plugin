@@ -543,6 +543,8 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
                 {
                   useMarkdown: true,
                   log: params.runtime.log,
+                  accountId: account.accountId,
+                  conversationId: data.conversationId,
                 }
               );
             }

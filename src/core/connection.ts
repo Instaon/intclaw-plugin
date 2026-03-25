@@ -20,6 +20,7 @@ import {
 } from "../utils/utils-legacy.ts";
 import { createLoggerFromConfig } from "../utils/logger.ts";
 import { INTCLAW_CONFIG } from "../../config.ts";
+import { setIntclawMonitorState, stopIntclawMonitorState } from "./state.ts";
 
 // ============ 类型定义 ============
 
@@ -644,6 +645,7 @@ export async function monitorSingleAccount(
 
     // 清理定时器
     const cleanup = () => {
+      stopIntclawMonitorState(accountId);
       clearInterval(statsInterval);
       stop();
     };
@@ -653,6 +655,8 @@ export async function monitorSingleAccount(
       await client.connect();
       logger.info(`Connected to IntClaw Stream successfully`);
       logger.info(`PID: ${process.pid}`);
+      // Register the connected client globally
+      setIntclawMonitorState(accountId, { running: true, client: client as any });
       logger.info(
         `✅ 自定义 keepAlive: true (10 秒心跳，90 秒超时), 指数退避重连`,
       );
