@@ -25,7 +25,10 @@
       "Bash(npx jiti:*)",
       "Bash(npx:*)",
       "Bash(ls -la /Users/bianhui/Documents/Code/intclaw-plugin/*.md)",
-      "Bash(ls /Users/bianhui/Documents/Code/intclaw-plugin/*.md)"
+      "Bash(ls /Users/bianhui/Documents/Code/intclaw-plugin/*.md)",
+      "Bash(grep -l dispatchReplyFromConfig node_modules/openclaw/dist/*.js)",
+      "Bash(grep -l \"createPluginRuntimeStore\\\\|withReplyDispatcher\\\\|dispatchReplyFromConfig\" node_modules/openclaw/dist/*plugin*.js)",
+      "Bash(grep:*)"
     ]
   }
 }
