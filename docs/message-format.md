@@ -159,3 +159,48 @@ wss://claw-dev.int-os.com/user-ws/
 
 - [配置 Schema 说明](config-schema.md) - IntClaw Plugin 配置说明
 - [功能列表](features.md) - IntClaw 连接器的完整功能列表
+
+## 3. 发送消息 (Client -> Server - WebSocket)
+
+插件可以通过现有的 WebSocket 链路直接向服务端发送业务消息。为了最大程度降低服务端的解析复杂度，其格式与“接收消息”保持**完全对称**。
+
+### 3.1 协议格式 (Envelope)
+
+```json
+{
+  "type": "MESSAGE",
+  "headers": {
+    "messageId": "string",
+    "topic": "/v1.0/im/bot/messages"
+  },
+  "data": "string"
+}
+```
+
+### 3.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **type** | string | 是 | 消息容器类型，固定为 `MESSAGE` |
+| **headers** | object | 是 | 包含路由和追踪信息 |
+| **headers.messageId** | string | 是 | 客户端生成的唯一 ID (UUID)，用于追踪该条发送指令 |
+| **headers.topic** | string | 是 | 路由标识，建议统一使用 `/v1.0/im/bot/messages` |
+| **data** | string | 是 | **核心业务数据**。必须是 JSON 序列化后的字符串，后端需进行二次解析。 |
+
+### 3.3 data 内部结构 (反序列化后)
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **msgtype** | string | 是 | 业务消息类型。可选值：`text`, `markdown`, `image` 等。 |
+| **conversationId** | string | 是 | 会话 ID。服务端根据此 ID 将消息路由分发给对应的用户或群聊。 |
+| **text** | object | 否 | 当 `msgtype` 为 `text` 时必填。格式：`{"content": "内容"}` |
+| **markdown** | object | 否 | 当 `msgtype` 为 `markdown` 时必填。格式：`{"title": "标题", "text": "内容"}` |
+
+### 3.4 混合传输模式建议 (Hybrid Mode)
+
+为了平衡实时性与稳定性，建议对于复杂媒体消息采用以下闭环：
+
+1.  **二进制上传 (HTTP)**：客户端通过专用 HTTP 文件上传接口上传媒体文件，换取一个持久化的 `downloadUrl` 或 `media_id`。
+2.  **指令发送 (WS)**：将得到的链接/ID 填入上述 WS 协议的 Payload 中完成最后的“发送”指令。
+
+这种“HTTP 传实体，WS 传指令”的模式，可以完美规避在 WebSocket 上建立复杂流式分片上传的需求。
