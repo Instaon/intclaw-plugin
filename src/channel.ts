@@ -85,7 +85,7 @@ export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
     schema: {
       type: "object",
       properties: {
-        enabled: { type: "boolean" },
+        enabled: { type: "boolean", default: true },
         clientId:{ type: "string" },
         clientSecret: { type: "string" },
         systemPrompt: { type: "string" },
