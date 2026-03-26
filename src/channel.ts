@@ -32,11 +32,11 @@ import { sendTextToIntClaw, sendMediaToIntClaw } from "./services/messaging/inde
 import type { ResolvedIntclawAccount, IntclawConfig } from "./types/index.ts";
 
 const meta: ChannelMeta = {
-  id: "intclaw",
+  id: "intclaw-connector",
   label: "IntClaw",
   selectionLabel: "IntClaw (IntClaw)",
-  docsPath: "/channels/intclaw",
-  docsLabel: "intclaw",
+  docsPath: "/channels/intclaw-connector",
+  docsLabel: "intclaw-connector",
   blurb: "IntClaw企业内部机器人，使用 Stream 模式，无需公网 IP，支持 AI Card 流式响应。",
   aliases: ["int"],
   order: 70,
