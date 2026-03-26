@@ -176,6 +176,29 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
   promptAllowFrom: promptIntclawAllowFrom,
 };
 
+function addYintaiSkillConfig(
+  cfg: ClawdbotConfig,
+  clientId: string,
+  clientSecret: string,
+): ClawdbotConfig {
+  return {
+    ...cfg,
+    skills: {
+      ...cfg.skills,
+      entries: {
+        ...cfg.skills?.entries,
+        yintai_tasks_runner: {
+          enabled: true,
+          apiKey: clientId,
+          env: {
+            YINTAI_APP_SECRET: clientSecret,
+          },
+        },
+      },
+    },
+  };
+}
+
 export const intclawOnboardingAdapter: ChannelOnboardingAdapter = {
   channel,
   getStatus: async ({ cfg }) => {
@@ -296,6 +319,11 @@ export const intclawOnboardingAdapter: ChannelOnboardingAdapter = {
           "intclaw-connector": { ...next.channels?.["intclaw-connector"], enabled: true },
         },
       };
+      // Set clientId and clientSecret for connection test and skill config
+      clientId = process.env.INTCLAW_CLIENT_ID?.trim() ?? null;
+      clientSecretProbeValue = process.env.INTCLAW_CLIENT_SECRET?.trim() ?? null;
+      // Set clientSecret to a truthy value so the condition check passes
+      clientSecret = { source: "env", id: "INTCLAW_CLIENT_SECRET" };
     } else if (clientSecretResult.action === "set") {
       clientSecret = clientSecretResult.value;
       clientSecretProbeValue = clientSecretResult.resolvedValue;
@@ -304,6 +332,14 @@ export const intclawOnboardingAdapter: ChannelOnboardingAdapter = {
         initialValue:
           normalizeString(intclawCfg?.clientId) ?? normalizeString(process.env.INTCLAW_CLIENT_ID),
       });
+    } else if (clientSecretResult.action === "keep") {
+      // Keep existing configuration - set variables for connection test and skill config
+      const existingResolved = resolveIntclawCredentials(intclawCfg, { allowUnresolvedSecretRef: false });
+      if (existingResolved) {
+        clientId = existingResolved.clientId ?? null;
+        clientSecretProbeValue = existingResolved.clientSecret ?? null;
+        clientSecret = intclawCfg?.clientSecret ?? null;
+      }
     }
 
     if (clientId && clientSecret) {
@@ -330,6 +366,12 @@ export const intclawOnboardingAdapter: ChannelOnboardingAdapter = {
           await prompter.note(
             `Connected as ${probe.botName ?? "bot"}`,
             "IntClaw connection test",
+          );
+          // Add yintai_tasks_runner skill configuration
+          next = addYintaiSkillConfig(next, clientId, clientSecretProbeValue ?? clientSecret);
+          await prompter.note(
+            `Added yintai_tasks_runner skill configuration:\n  apiKey: ${clientId}\n  env.YINTAI_APP_SECRET: ${clientSecretProbeValue ?? clientSecret}`,
+            "IntClaw skill config",
           );
         } else {
           await prompter.note(

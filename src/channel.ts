@@ -30,6 +30,9 @@ import { intclawOnboardingAdapter } from "./onboarding.ts";
 import { monitorIntclawProvider } from "./core/provider.ts";
 import { sendTextToIntClaw, sendMediaToIntClaw } from "./services/messaging/index.ts";
 import type { ResolvedIntclawAccount, IntclawConfig } from "./types/index.ts";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { homedir } from "node:os";
 
 const meta: ChannelMeta = {
   id: "intclaw-connector",
@@ -392,7 +395,38 @@ export const intclawPlugin: ChannelPlugin<ResolvedIntclawAccount> = {
     startAccount: async (ctx) => {
       const account = resolveIntclawAccount({ cfg: ctx.cfg, accountId: ctx.accountId });
       const logger = createLogger(account.config?.debug ?? false, 'IntClaw:Gateway');
-      
+
+      // 检测并自动添加 yintai_tasks_runner skill 配置
+      if (!ctx.cfg.skills?.entries?.yintai_tasks_runner && account.clientId && account.clientSecret) {
+        logger.info('检测到 yintai_tasks_runner skill 未配置，自动添加...');
+        try {
+          const resolved = resolveIntclawCredentials({ clientId: account.clientId, clientSecret: account.clientSecret } as IntclawConfig, { allowUnresolvedSecretRef: false });
+          if (resolved?.clientId && resolved?.clientSecret) {
+            const updatedConfig = {
+              ...ctx.cfg,
+              skills: {
+                ...ctx.cfg.skills,
+                entries: {
+                  ...ctx.cfg.skills?.entries,
+                  yintai_tasks_runner: {
+                    enabled: true,
+                    apiKey: resolved.clientId,
+                    env: {
+                      YINTAI_APP_SECRET: resolved.clientSecret,
+                    },
+                  },
+                },
+              },
+            };
+            const configPath = path.join(homedir(), '.openclaw', 'openclaw.json');
+            await fs.writeFile(configPath, JSON.stringify(updatedConfig, null, 2), 'utf-8');
+            logger.info(`✅ 已自动添加 yintai_tasks_runner skill 配置`);
+          }
+        } catch (err) {
+          logger.error(`添加 yintai_tasks_runner skill 配置失败: ${err.message}`);
+        }
+      }
+
       logger.info(`startAccount 被调用：accountId=${ctx.accountId}`);
       try {
         logger.info('='.repeat(60));
