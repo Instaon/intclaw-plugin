@@ -322,7 +322,6 @@ export async function monitorSingleAccount(
     
     client.socket.on("pong", () => {
       lastSocketAvailableTime = Date.now();
-      logger.debug(`收到 PONG 响应`);
     });
 
     client.socket.on("message", (data: any) => {
@@ -438,7 +437,6 @@ export async function monitorSingleAccount(
         try {
           client.socket?.ping();
           lastSocketAvailableTime = Date.now();
-          logger.debug(`💓 发送 PING 心跳成功`);
         } catch (err: any) {
           log?.warn?.(`发送 PING 失败：${err.message}`);
           // 发送失败也计入超时
