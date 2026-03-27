@@ -329,7 +329,7 @@ export async function monitorSingleAccount(
         const payload = Object.prototype.toString.call(data) === '[object Buffer]' ? data.toString() : data as string;
         logger.info(`[WS收到] 包: ${payload}`);
         const msg = JSON.parse(payload);
-        
+
         // 检查 disconnect 类型
         if (msg.type === "SYSTEM" && msg.headers?.topic === "disconnect") {
           if (!isStopped && !isReconnecting) {
@@ -339,7 +339,7 @@ export async function monitorSingleAccount(
           }
           return;
         }
-        
+
         // 获取 topic: 优先取 headers.topic，然后取 type (例如 MESSAGE/EVENT) 作为 fallback，再默认转为 'robot'
         const rawTopic = msg.headers?.topic || msg.type || "robot";
         // 如果是标准的机器人消息话题
@@ -348,7 +348,23 @@ export async function monitorSingleAccount(
         // 派发给外部 handler
         const handler = client.messageHandlers.get(topic);
         if (handler) {
-          const res = msg.headers ? msg : { headers: { messageId: msg.msgId || msg.messageId }, data: payload };
+          // 构造 res 对象：如果 msg 有 headers（标准格式），直接使用 msg，同时解析 data 字段为 JSON
+          // 否则构造一个简化版本的 res 对象
+          let res: any;
+          if (msg.headers) {
+            // 标准 IntClaw 消息格式：{ type: "MESSAGE", headers: {...}, data: "..." }
+            // data 字段是 JSON 字符串，需要解析
+            res = {
+              headers: msg.headers,
+              data: msg.data  // 保持原始 JSON 字符串，由 handler 解析
+            };
+          } else {
+            // 非标准格式，构造简化对象
+            res = {
+              headers: { messageId: msg.msgId || msg.messageId },
+              data: JSON.stringify(msg)  // 将整个 msg 序列化为 JSON 字符串
+            };
+          }
           handler(res);
         } else {
           logger.debug(`未找到对应 topic 的处理函数：${topic}`);
@@ -413,9 +429,6 @@ export async function monitorSingleAccount(
         // 【心跳检测】检查 socket 状态
         const socketState = client.socket?.readyState;
         const timeSinceConnection = Date.now() - connectionEstablishedTime;
-        logger.debug(
-          `🔍 心跳检测：socket 状态=${socketState}, elapsed=${Math.round(elapsed / 1000)}s, 连接已建立=${Math.round(timeSinceConnection / 1000)}s`,
-        );
 
         // 给新建立的连接 15 秒宽限期，避免在连接建立初期就触发重连
         if (socketState !== 1) {
