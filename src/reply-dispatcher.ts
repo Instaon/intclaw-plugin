@@ -11,14 +11,7 @@ import {
 import { resolveIntclawAccount } from "./config/accounts.ts";
 import { getIntclawRuntime } from "./runtime.ts";
 import type { IntclawConfig } from "./types/index.ts";
-import {
-  createAICardForTarget,
-  streamAICard,
-  finishAICard,
-  sendMessage,
-  type AICardTarget,
-  type AICardInstance,
-} from "./services/messaging/index.ts";
+import { sendViaWSAdapter } from "./services/messaging/ws-out-adapter.ts";
 import {
   processLocalImages,
   processVideoMarkers,
@@ -104,17 +97,15 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
     },
   };
 
-  // AI Card 状态管理
-  let currentCardTarget: AICardTarget | null = null;
-  let accumulatedText = "";
+  // 流式响应状态管理
   const deliveredFinalTexts = new Set<string>();
   
   // 异步模式：累积完整响应
   let asyncModeFullResponse = "";
   
-  // ✅ 节流控制：避免频繁调用IntClaw API 导致 QPS 限流
+  // 节流控制：避免频繁发送导致问题
   let lastUpdateTime = 0;
-  const updateInterval = 1000; // 最小更新间隔 1000ms（IntClaw QPS 限制：40 次/秒，安全起见设为 1 秒）
+  const updateInterval = 1000; // 最小更新间隔 1000ms
 
   // ✅ 错误兜底：防止重复发送错误消息
   const deliveredErrorTypes = new Set<string>();
@@ -205,179 +196,54 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
   );
   const chunkMode = core.channel.text.resolveChunkMode(cfg, "intclaw-connector");
 
-  // 流式 AI Card 支持
+  // WebSocket 流式响应支持
   const streamingEnabled = account.config?.streaming !== false;
-  let isCreatingCard = false;  // ✅ 添加创建中标志，防止并发创建
 
+  // WebSocket 流式发送：发送 response.in_progress 事件
   const startStreaming = async () => {
-    // 异步模式下禁用流式 AI Card
-    if (asyncMode) {
-      log.info(`[IntClaw][startStreaming] 异步模式，跳过 AI Card 创建`);
-      return;
-    }
     if (!streamingEnabled) {
-      log.info(`[IntClaw][startStreaming] 流式功能被禁用，跳过 AI Card 创建`);
+      log.info(`[WS-Streaming] 流式功能被禁用`);
       return;
     }
-    if (currentCardTarget) {
-      log.info(`[IntClaw][startStreaming] AI Card 已存在，跳过创建`);
-      return;
-    }
-    if (isCreatingCard) {
-      log.info(`[IntClaw][startStreaming] AI Card 正在创建中，跳过`);
-      return;
-    }
-    
-    isCreatingCard = true;
-    log.info(`[IntClaw][startStreaming] 开始创建 AI Card...`);
+
+    log.info(`[WS-Streaming] 开始发送 response.in_progress 事件`);
 
     try {
-      const target: AICardTarget = isDirect
-        ? { type: 'user', userId: senderId }
-        : { type: 'group', openConversationId: conversationId };
-      
-      log.info(`[IntClaw][startStreaming] 目标：${JSON.stringify(target)}`);
-      
-      const card = await createAICardForTarget(
-        account.config as IntclawConfig,
-        target,
-        {
-          info: params.runtime.info,
-          error: params.runtime.error,
-          warn: params.runtime.warn,
-          debug: params.runtime.debug,
+      const target = { conversationId: conversationId };
+      await sendViaWSAdapter(accountId, target, {
+        msgtype: 'markdown',  // 用于内容格式化
+        markdown: {
+          content: ''  // 初始为空
         }
-      );
-      currentCardTarget = card;
-      accumulatedText = "";
-      
-      if (card) {
-        log.info(`[IntClaw][startStreaming] ✅ AI Card 创建成功`);
-      } else {
-        log.warn(`[IntClaw][startStreaming] AI Card 创建返回 null，静默降级到普通消息模式`);
-      }
+      }, { log: params.runtime.log });
+
+      log.info(`[WS-Streaming] ✅ response.in_progress 发送成功`);
     } catch (error: any) {
-      log.error(`[IntClaw][startStreaming] ❌ AI Card 创建失败：${error?.message || String(error)}，静默降级到普通消息模式`);
-      currentCardTarget = null;
-    } finally {
-      isCreatingCard = false;
+      log.error(`[WS-Streaming] ❌ 发送 response.in_progress 失败：${error?.message}`);
     }
   };
 
-  const closeStreaming = async () => {
-    if (!currentCardTarget) {
-      log.info(`[IntClaw][closeStreaming] 无 AI Card，跳过关闭`);
+  // WebSocket 流式发送：发送 response.completed 事件
+  const closeStreaming = async (finalText?: string) => {
+    if (!streamingEnabled) {
       return;
     }
 
-    log.info(`[IntClaw][closeStreaming] 开始关闭 AI Card...`);
+    const text = finalText || '✅ 任务执行完成';
+    log.info(`[WS-Streaming] 发送 response.completed 事件，文本长度=${text.length}`);
 
     try {
-      // 处理媒体标记
-      let finalText = accumulatedText;
-      
-      // ✅ 如果累积的文本为空，使用默认提示文案
-      if (!finalText.trim()) {
-        finalText = '✅ 任务执行完成（无文本输出）';
-        log.info(`[IntClaw][closeStreaming] 累积文本为空，使用默认提示文案`);
-      }
-      
-      // 获取 oapiToken 用于媒体处理
-      const oapiToken = await getOapiAccessToken(account.config as IntclawConfig);
-      
-      // ✅ 构建正确的 target（单聊用 senderId，群聊用 conversationId）
-      const target: AICardTarget = isDirect
-        ? { type: 'user', userId: senderId }
-        : { type: 'group', openConversationId: conversationId };
-      
-      log.info(`[IntClaw][closeStreaming] 开始处理媒体文件，target=${JSON.stringify(target)}`);
-      
-      if (oapiToken) {
-        // 处理本地图片
-        finalText = await processLocalImages(finalText, oapiToken, log);
-        
-        // ✅ 先处理 Markdown 标记格式的媒体文件
-        finalText = await processVideoMarkers(
-          finalText,
-          '',
-          account.config as IntclawConfig,
-          oapiToken,
-          log,
-          true,  // ✅ 使用主动 API 模式
-          target
-        );
-        finalText = await processAudioMarkers(
-          finalText,
-          '',
-          account.config as IntclawConfig,
-          oapiToken,
-          log,
-          true,  // ✅ 使用主动 API 模式
-          target
-        );
-        finalText = await processFileMarkers(
-          finalText,
-          '',
-          account.config as IntclawConfig,
-          oapiToken,
-          log,
-          true,  // ✅ 使用主动 API 模式
-          target
-        );
-        
-        // ✅ 处理裸露的本地文件路径（绕过 OpenClaw SDK 的 bug）
-        log.info(`[IntClaw][closeStreaming] 准备调用 processRawMediaPaths`);
-        const { processRawMediaPaths } = await import('./services/media.js');
-        finalText = await processRawMediaPaths(
-          finalText,
-          account.config as IntclawConfig,
-          oapiToken,
-          log,
-          target
-        );
-        log.info(`[IntClaw][closeStreaming] processRawMediaPaths 处理完成`);
-      } else {
-        log.warn(`[IntClaw][closeStreaming] oapiToken 为空，跳过媒体处理`);
-      }
+      const target = { conversationId: conversationId };
+      await sendViaWSAdapter(accountId, target, {
+        msgtype: 'markdown',
+        markdown: {
+          content: text
+        }
+      }, { log: params.runtime.log });
 
-      log.info(`[IntClaw][closeStreaming] 准备调用 finishAICard，文本长度=${finalText.length}`);
-      await finishAICard(
-        currentCardTarget as AICardInstance,
-        finalText,
-        {
-          info: params.runtime.info,
-          error: params.runtime.error,
-          warn: params.runtime.warn,
-          debug: params.runtime.debug,
-        }
-      );
-      log.info(`[IntClaw][closeStreaming] ✅ AI Card 关闭成功`);
+      log.info(`[WS-Streaming] ✅ response.completed 发送成功`);
     } catch (error: any) {
-      log.error(`[IntClaw][closeStreaming] ❌ AI Card 关闭失败：${error?.message || String(error)}`);
-      // ✅ 媒体处理或关闭失败时，降级发送普通消息
-      await sendFallbackErrorMessage('mediaProcess', error?.message || String(error));
-      
-      // 尝试用普通消息发送累积的文本
-      if (accumulatedText.trim()) {
-        try {
-          log.info(`[IntClaw][closeStreaming] 降级发送普通消息`);
-          await sendMessage(
-            account.config as IntclawConfig,
-            sessionWebhook,
-            accumulatedText,
-            {
-              useMarkdown: true,
-              log: params.runtime.log,
-            }
-          );
-          log.info(`[IntClaw][closeStreaming] ✅ 降级发送成功`);
-        } catch (sendErr: any) {
-          log.error(`[IntClaw][closeStreaming] ❌ 降级发送失败：${sendErr.message}`);
-        }
-      }
-    } finally {
-      currentCardTarget = null;
-      accumulatedText = "";
+      log.error(`[WS-Streaming] ❌ 发送 response.completed 失败：${error?.message}`);
     }
   };
 
@@ -398,28 +264,24 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
         
         log.info(`[IntClaw][deliver] 被调用：kind=${info?.kind}, textLength=${text.length}, hasText=${Boolean(text.trim())}`);
         
-        // ✅ 在 final 响应时，先处理裸露的文件路径
+        // ✅ 在 final 响应时，处理媒体文件
         if (info?.kind === "final" && text.trim()) {
-          const target: AICardTarget = isDirect
-            ? { type: 'user', userId: senderId }
-            : { type: 'group', openConversationId: conversationId };
-          
           try {
             const oapiToken = await getOapiAccessToken(account.config as IntclawConfig);
             if (oapiToken) {
-              log.info(`[IntClaw][deliver] 检测到 final 响应，准备处理裸露文件路径`);
+              log.info(`[IntClaw][deliver] 检测到 final 响应，准备处理媒体文件`);
               const { processRawMediaPaths } = await import('./services/media.js');
               text = await processRawMediaPaths(
                 text,
                 account.config as IntclawConfig,
                 oapiToken,
                 log,
-                target
+                { type: isDirect ? 'user' : 'group', ...(isDirect ? { userId: senderId } : { openConversationId: conversationId }) }
               );
-              log.info(`[IntClaw][deliver] 裸露文件路径处理完成`);
+              log.info(`[IntClaw][deliver] 媒体文件处理完成`);
             }
           } catch (err: any) {
-            log.error(`[IntClaw][deliver] 处理裸露文件路径失败：${err.message}`);
+            log.error(`[IntClaw][deliver] 处理媒体文件失败：${err.message}`);
           }
         }
         
@@ -447,83 +309,36 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
           return;
         }
 
-        // 流式模式：使用 AI Card
+        // WebSocket 流式模式：发送 response.output_text.delta 事件
         if (info?.kind === "block" && streamingEnabled) {
-          if (!currentCardTarget) {
-            log.info(`[IntClaw][deliver] block 响应，AI Card 不存在，尝试创建...`);
-            await startStreaming();
+          log.info(`[WS-Streaming] 发送 response.output_text.delta 事件，文本长度=${text.length}`);
+          try {
+            const target = { conversationId: conversationId };
+            await sendViaWSAdapter(accountId, target, {
+              msgtype: 'text',
+              text: { content: text }
+            }, { log: params.runtime.log });
+            log.info(`[WS-Streaming] ✅ response.output_text.delta 发送成功`);
+          } catch (wsErr: any) {
+            log.error(`[WS-Streaming] ❌ 发送 response.output_text.delta 失败：${wsErr.message}`);
+            // 降级到普通消息
+            await sendMessage(
+              account.config as IntclawConfig,
+              sessionWebhook,
+              text,
+              { useMarkdown: true, log: params.runtime.log }
+            );
           }
-          if (currentCardTarget) {
-            accumulatedText += text;
-            log.info(`[IntClaw][deliver] 流式更新 AI Card，累积文本长度=${accumulatedText.length}`);
-            try {
-              await streamAICard(
-                currentCardTarget as AICardInstance,
-                accumulatedText,
-                false,
-                params.runtime.log
-              );
-            } catch (streamErr: any) {
-              log.error(`[IntClaw][deliver] ❌ streamAICard 失败：${streamErr.message}`);
-              // ✅ 流式更新失败，发送兜底消息并降级
-              await sendFallbackErrorMessage('sendMessage', streamErr.message);
-            }
-          } else {
-            log.warn(`[IntClaw][deliver] ⚠️ AI Card 创建失败，降级到非流式发送`);
-            // 降级逻辑：如果 AI Card 创建失败，直接发送普通消息
-            try {
-              for (const chunk of core.channel.text.chunkTextWithMode(
-                text,
-                textChunkLimit,
-                chunkMode
-              )) {
-                await sendMessage(
-                  account.config as IntclawConfig,
-                  sessionWebhook,
-                  chunk,
-                  {
-                    useMarkdown: true,
-                    log: params.runtime.log,
-                  }
-                );
-              }
-              log.info(`[IntClaw][deliver] ✅ 降级发送成功`);
-            } catch (error: any) {
-              log.error(`[IntClaw][deliver] ❌ 降级发送失败：${error.message}`);
-              await sendFallbackErrorMessage('sendMessage', error.message);
-            }
-          }
+          deliveredFinalTexts.add(text);
           return;
         }
 
-        // 流式模式的 final 处理
+        // WebSocket 流式模式的 final 处理
         if (info?.kind === "final" && streamingEnabled) {
-          log.info(`[IntClaw][deliver] final 响应，流式模式`);
-          // 如果还没有创建 AI Card，先创建
-          if (!currentCardTarget && !isCreatingCard) {
-            log.info(`[IntClaw][deliver] AI Card 不存在，尝试创建...`);
-            await startStreaming();
-          }
-          
-          // 等待创建完成
-          if (isCreatingCard) {
-            const maxWait = 5000;
-            const startTime = Date.now();
-            log.info(`[IntClaw][deliver] 等待 AI Card 创建完成，最多等待 ${maxWait}ms`);
-            while (isCreatingCard && Date.now() - startTime < maxWait) {
-              await new Promise(resolve => setTimeout(resolve, 50));
-            }
-          }
-          
-          if (currentCardTarget) {
-            accumulatedText = text;
-            log.info(`[IntClaw][deliver] 调用 closeStreaming 完成 AI Card`);
-            await closeStreaming();
-            deliveredFinalTexts.add(text);
-            return;
-          } else {
-            log.warn(`[IntClaw][deliver] ⚠️ AI Card 创建失败，降级到非流式发送`);
-          }
+          log.info(`[WS-Streaming] final 响应，发送 response.completed 事件`);
+          await closeStreaming(text);
+          deliveredFinalTexts.add(text);
+          return;
         }
 
         // 流式模式但没有 card target：降级到非流式发送
@@ -589,84 +404,22 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
       onModelSelected,
       ...(streamingEnabled && {
         onPartialReply: async (payload: ReplyPayload) => {
-        log.info(`[IntClaw][onPartialReply] 被调用，payload.text=${payload.text ? payload.text.length : 'null'}`);
-        if (!payload.text) {
-          log.debug(`[IntClaw][onPartialReply] 空文本，跳过`);
-          return;
-        }
-        
-        log.debug(`[IntClaw][onPartialReply] 收到部分响应，文本长度=${payload.text.length}`);
-        
-        // 异步模式下禁用流式更新
-        if (asyncMode) {
-          log.debug(`[IntClaw][onPartialReply] 异步模式，累积响应`);
-          asyncModeFullResponse = payload.text;
-          return;
-        }
-        
-        // 如果还没有 AI Card，先启动流式
-        if (!currentCardTarget && !isCreatingCard) {
-          log.debug(`[IntClaw][onPartialReply] AI Card 不存在，尝试创建...`);
-          await startStreaming();
-        }
-        
-        // 如果正在创建中，等待创建完成
-        if (isCreatingCard) {
-          const maxWait = 5000;
-          const startTime = Date.now();
-          log.debug(`[IntClaw][onPartialReply] 等待 AI Card 创建完成，最多等待 ${maxWait}ms`);
-          while (isCreatingCard && Date.now() - startTime < maxWait) {
-            await new Promise(resolve => setTimeout(resolve, 50));
+          if (!payload.text) {
+            log.debug(`[WS-Streaming] 空文本，跳过`);
+            return;
           }
-        }
-        
-        if (currentCardTarget) {
-          accumulatedText = payload.text;
-          
-          const now = Date.now();
-          if (now - lastUpdateTime >= updateInterval) {
-            const { FILE_MARKER_PATTERN, VIDEO_MARKER_PATTERN, AUDIO_MARKER_PATTERN } = await import('./services/media/common.ts');
-            const displayContent = accumulatedText
-              .replace(FILE_MARKER_PATTERN, '')
-              .replace(VIDEO_MARKER_PATTERN, '')
-              .replace(AUDIO_MARKER_PATTERN, '')
-              .trim();
-            
-            log.debug(`[IntClaw][onPartialReply] 更新 AI Card，显示文本长度=${displayContent.length}`);
-            
-            try {
-              await streamAICard(
-                currentCardTarget as AICardInstance,
-                displayContent,
-                false,
-                {
-                  info: params.runtime.info,
-                  error: params.runtime.error,
-                  warn: params.runtime.warn,
-                  debug: params.runtime.debug,
-                }
-              );
-              lastUpdateTime = now;
-              log.debug(`[IntClaw][onPartialReply] ✅ AI Card 更新成功`);
-            } catch (err: any) {
-              // 安全检查：确保 code 存在且为字符串
-              const errorCode = err.response?.data?.code;
-              if (err.response?.status === 403 && typeof errorCode === 'string' && errorCode.includes('QpsLimit')) {
-                // QPS 限流，跳过本次更新
-                log.warn(`[IntClaw][AICard] QPS 限流，跳过本次更新`);
-              } else {
-                log.error(`[IntClaw][onPartialReply] ❌ AI Card 更新失败：${err.message}`);
-                // ✅ 发送兜底错误消息，但不抛出异常，避免中断后续处理
-                await sendFallbackErrorMessage('sendMessage', err.message);
-              }
-            }
-          } else {
-            log.debug(`[IntClaw][onPartialReply] 节流控制，跳过本次更新（距离上次更新 ${now - lastUpdateTime}ms）`);
+
+          log.info(`[WS-Streaming] 发送 response.output_text.delta 事件，文本长度=${payload.text.length}`);
+          try {
+            const target = { conversationId: conversationId };
+            await sendViaWSAdapter(accountId, target, {
+              msgtype: 'text',
+              text: { content: payload.text }
+            }, { log: params.runtime.log });
+          } catch (wsErr: any) {
+            log.error(`[WS-Streaming] ❌ 发送 response.output_text.delta 失败：${wsErr.message}`);
           }
-        } else {
-          log.warn(`[IntClaw][onPartialReply] ⚠️ AI Card 不存在，跳过更新`);
-        }
-      },
+        },
       }),
       disableBlockStreaming: true,  // ✅ 强制使用 onPartialReply 而不是 block
     },
