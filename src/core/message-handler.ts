@@ -1187,45 +1187,22 @@ export async function handleIntClawMessageInternal(params: HandleMessageParams):
 export async function handleIntClawMessage(params: HandleMessageParams): Promise<void> {
   const { accountId, data, log, cfg } = params;
 
-  // ===== 处理流式响应事件（转换为标准 IM 消息格式） =====
-  // 服务器可能发送流式事件格式的消息，需要转换为标准 IM 消息格式
-  if (data.type && data.type.startsWith('response.') && !data.msgtype) {
-    log?.info?.(`[WS-In-Adapter] 检测到流式响应事件，转换为标准 IM 消息格式: type=${data.type}`);
-
-    // 提取文本内容（支持 response.output_text.delta 格式）
-    let extractedText = '';
-    if (data.type === 'response.output_text.delta' && data.delta?.text) {
-      extractedText = data.delta.text;
+  // ===== 过滤非 IM 消息类型（流式响应事件等） =====
+  // 标准 IM 消息必须有 msgtype 字段（text、picture、audio 等）
+  // 如果没有 msgtype，说明这是流式 API 响应事件（如 response.in_progress、response.output_text.delta 等）
+  // 这些事件不包含真实的用户信息（senderId、conversationId），无法被正确处理
+  if (!data.msgtype) {
+    // 检查是否是已知的流式事件类型
+    if (data.type && data.type.startsWith('response.')) {
+      log?.info?.(`[WS-In-Adapter] 跳过流式响应事件（无用户信息）: type=${data.type}`);
+      return;
     }
-
-    // 转换为标准 IM 消息格式
-    const transformedData: any = {
-      msgtype: 'text',
-      text: {
-        content: extractedText
-      },
-      conversationType: '1',  // 默认为单聊
-      senderStaffId: data.senderStaffId || data.senderId || 'system',
-      senderId: data.senderStaffId || data.senderId || 'system',
-      senderNick: data.senderNick || 'System',
-      conversationId: data.conversationId || data.conversation_id || 'default',
-      createdAt: data.timestamp || new Date().toISOString(),
-      // 保留原始流式事件数据用于调试
-      _originalStreamEvent: data
-    };
-
-    log?.info?.(`[WS-In-Adapter] 转换后消息: msgtype=text, content="${extractedText.substring(0, 50)}..."`);
-
-    // 替换 data 为转换后的格式
-    params.data = transformedData;
+    // 其他未知格式也记录警告但跳过
+    log?.info?.(`[WS-In-Adapter] 跳过未知格式的消息: type=${data.type || 'unknown'}, keys=${Object.keys(data).join(',')}`);
+    return;
   }
 
   // 构建会话标识（与会话上下文保持一致）
-  // 注意：data 可能已被上面的转换逻辑修改，需要使用 params.data
-  const finalData = params.data;
-  const isDirect = finalData.conversationType === '1';
-  const senderId = finalData.senderStaffId || finalData.senderId;
-  const conversationId = finalData.conversationId;
   const baseSessionId = isDirect ? senderId : conversationId;
 
   if (!baseSessionId) {
