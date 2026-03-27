@@ -7,8 +7,6 @@
       "Bash(node --check /Users/bianhui/Documents/Code/intclaw-plugin/src/index.js)",
       "Bash(node --check /Users/bianhui/Documents/Code/intclaw-plugin/src/channel/IntClawChannel.js)",
       "Bash(pnpm test:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
       "Bash(npm whoami:*)",
       "Bash(npm view:*)",
       "Bash(pnpm pack:*)",
@@ -29,8 +27,7 @@
       "Bash(grep -l dispatchReplyFromConfig node_modules/openclaw/dist/*.js)",
       "Bash(grep -l \"createPluginRuntimeStore\\\\|withReplyDispatcher\\\\|dispatchReplyFromConfig\" node_modules/openclaw/dist/*plugin*.js)",
       "Bash(grep:*)",
-      "Bash(node:*)",
-      "Bash(git checkout:*)"
+      "Bash(node:*)"
     ]
   }
 }
