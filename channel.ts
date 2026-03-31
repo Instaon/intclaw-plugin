@@ -9,10 +9,10 @@
  */
 
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
-import { monitorInstaClawProvider } from "./connection.js";
-import { createEnvelope, textToEventSequence } from "./protocol.js";
-import { DebugLogger } from "./logger.js";
-import { WS_URL } from "./config.js";
+import { monitorInstaClawProvider } from "./connection";
+import { createEnvelope, textToEventSequence } from "./protocol";
+import { DebugLogger } from "./logger";
+import { WS_URL } from "./config";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";

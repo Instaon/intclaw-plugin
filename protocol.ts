@@ -17,8 +17,8 @@ import type {
   OutputTextDeltaEvent,
   ResponseCompletedEvent,
   Item,
-} from './types.js';
-import { TEXT_CHUNK_SIZE } from './config.js';
+} from './types';
+import { TEXT_CHUNK_SIZE } from './config';
 
 // ============================================================================
 // Envelope Parsing Functions (Task 4.1)

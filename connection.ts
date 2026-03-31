@@ -16,8 +16,8 @@ import type {
   OutputTextDeltaEvent,
   ResponseCompletedEvent,
   ResponseFailedEvent,
-} from './types.js';
-import type { DebugLogger } from './logger.js';
+} from './types';
+import type { DebugLogger } from './logger';
 
 /**
  * WebSocket Connection Manager Class

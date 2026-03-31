@@ -8,7 +8,7 @@
  */
 
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk';
-import { instaClawPlugin } from './channel.js';
+import { instaClawPlugin } from './channel';
 
 /**
  * Plugin registration function
