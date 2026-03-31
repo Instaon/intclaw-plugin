@@ -1,11 +1,11 @@
 {
-  "id": "instagram-claw-connector",
+  "id": "insta-claw-connector",
   "name": "Instagram Claw Connector",
   "version": "1.0.0",
   "description": "A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging using Open Responses protocol",
   "author": "Instagram Claw Team",
   "main": "index.ts",
-  "channels": ["instagram-claw-connector"],
+  "channels": ["insta-claw-connector"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
