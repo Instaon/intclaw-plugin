@@ -1187,6 +1187,21 @@ export async function handleIntClawMessageInternal(params: HandleMessageParams):
 export async function handleIntClawMessage(params: HandleMessageParams): Promise<void> {
   const { accountId, data, log, cfg } = params;
 
+  // Fallback logger - 确保日志一定会输出
+  const safeLog = log || {
+    info: (...args: any[]) => console.log('[handleIntClawMessage]', ...args),
+    warn: (...args: any[]) => console.warn('[handleIntClawMessage]', ...args),
+    error: (...args: any[]) => console.error('[handleIntClawMessage]', ...args),
+  };
+
+  // ===== 消息入口追踪日志 =====
+  safeLog.info(`========== [消息入口] ==========`);
+  safeLog.info(`原始 data.msgtype: ${data.msgtype || 'undefined'}`);
+  safeLog.info(`原始 data.type: ${data.type || 'undefined'}`);
+  safeLog.info(`原始 data keys: ${Object.keys(data).join(', ')}`);
+  safeLog.info(`原始 data 完整内容: ${JSON.stringify(data).slice(0, 500)}...`);
+  safeLog.info(`==============================`);
+
   // ===== 过滤非 IM 消息类型（流式响应事件等） =====
   // 标准 IM 消息必须有 msgtype 字段（text、picture、audio 等）
   // 如果没有 msgtype，说明这是流式 API 响应事件（如 response.in_progress、response.output_text.delta 等）
@@ -1194,19 +1209,27 @@ export async function handleIntClawMessage(params: HandleMessageParams): Promise
   if (!data.msgtype) {
     // 检查是否是已知的流式事件类型
     if (data.type && data.type.startsWith('response.')) {
-      log?.info?.(`[WS-In-Adapter] 跳过流式响应事件（无用户信息）: type=${data.type}`);
+      safeLog.info(`[WS-In-Adapter] 跳过流式响应事件（无用户信息）: type=${data.type}`);
       return;
     }
     // 其他未知格式也记录警告但跳过
-    log?.info?.(`[WS-In-Adapter] 跳过未知格式的消息: type=${data.type || 'unknown'}, keys=${Object.keys(data).join(',')}`);
+    safeLog.info(`[WS-In-Adapter] 跳过未知格式的消息: type=${data.type || 'unknown'}, keys=${Object.keys(data).join(',')}`);
     return;
   }
+
+  safeLog.info(`[消息处理] 通过 msgtype 检查: msgtype=${data.msgtype}, 开始处理...`);
+
+  // 从 data 中提取必要字段
+  const conversationId = data.conversationId;
+  const senderId = data.senderId || data.senderStaffId;
+  const conversationType = data.conversationType;
+  const isDirect = conversationType === "1"; // "1" = 单聊, "2" = 群聊
 
   // 构建会话标识（与会话上下文保持一致）
   const baseSessionId = isDirect ? senderId : conversationId;
 
   if (!baseSessionId) {
-    log?.warn?.('无法构建会话标识，跳过队列管理');
+    safeLog.warn('无法构建会话标识，跳过队列管理');
     return handleIntClawMessageInternal(params);
   }
   
@@ -1247,19 +1270,19 @@ export async function handleIntClawMessage(params: HandleMessageParams): Promise
     // 创建当前消息的处理任务
     const currentTask = previousTask
       .then(async () => {
-        log?.info?.(`[队列] 开始处理消息，queueKey=${queueKey}`);
+        safeLog.info(`[队列] 开始处理消息，queueKey=${queueKey}`);
         await handleIntClawMessageInternal(params);
-        log?.info?.(`[队列] 消息处理完成，queueKey=${queueKey}`);
+        safeLog.info(`[队列] 消息处理完成，queueKey=${queueKey}`);
       })
       .catch((err: any) => {
-        log?.error?.(`[队列] 消息处理异常，queueKey=${queueKey}, error=${err.message}`);
+        safeLog.error(`[队列] 消息处理异常，queueKey=${queueKey}, error=${err.message}`);
         // 不抛出错误，避免阻塞后续消息
       })
       .finally(() => {
         // 如果当前任务是队列中的最后一个任务，清理队列
         if (sessionQueues.get(queueKey) === currentTask) {
           sessionQueues.delete(queueKey);
-          log?.info?.(`[队列] 队列已清空，queueKey=${queueKey}`);
+          safeLog.info(`[队列] 队列已清空，queueKey=${queueKey}`);
         }
       });
     

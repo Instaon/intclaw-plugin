@@ -54,7 +54,7 @@ export async function sendMarkdownMessage(
   markdown: string,
   options: any = {},
 ): Promise<any> {
-  const token = await getAccessToken(config);
+  const log = options.log || createLoggerFromConfig(config, 'IntClaw:Send');
   let text = markdown;
   if (options.atUserId) text = `${text} @${options.atUserId}`;
 
@@ -65,27 +65,28 @@ export async function sendMarkdownMessage(
   if (options.atUserId)
     body.at = { atUserIds: [options.atUserId], isAtAll: false };
 
-  // 尝试使用 WebSocket (Open Responses) 发送
+  // ✅ 强制使用 WebSocket 发送（移除 webhook fallback）
   if (options.accountId && options.conversationId) {
+    log.info(`[WS-Markdown] 准备通过 WebSocket 发送 Markdown 消息: accountId=${options.accountId}, conversationId=${options.conversationId}, title="${title}", markdown_length=${markdown.length}`);
+
     const wsSuccess = await sendViaWSAdapter(
       options.accountId,
       { conversationId: options.conversationId },
       body,
-      { log: options.log }
+      { log }
     );
+
     if (wsSuccess) {
+      log.info(`[WS-Markdown] ✅ WebSocket 发送成功`);
       return { ok: true, viaWS: true };
+    } else {
+      log.error(`[WS-Markdown] ❌ WebSocket 发送失败，且 webhook 已禁用`);
+      return { ok: false, error: 'WebSocket send failed and webhook is disabled' };
     }
   }
 
-  return (
-    await intclawHttp.post(sessionWebhook, body, {
-      headers: {
-        "x-acs-intclaw-access-token": token,
-        "Content-Type": "application/json",
-      },
-    })
-  ).data;
+  log.error(`[WS-Markdown] ❌ 缺少必要参数 (accountId=${options.accountId}, conversationId=${options.conversationId})，无法发送消息`);
+  return { ok: false, error: 'Missing accountId or conversationId for WebSocket send' };
 }
 
 /**
@@ -97,32 +98,33 @@ export async function sendTextMessage(
   text: string,
   options: any = {},
 ): Promise<any> {
-  const token = await getAccessToken(config);
+  const log = options.log || createLoggerFromConfig(config, 'IntClaw:Send');
   const body: any = { msgtype: "text", text: { content: text } };
   if (options.atUserId)
     body.at = { atUserIds: [options.atUserId], isAtAll: false };
 
-  // 尝试使用 WebSocket (Open Responses) 发送
+  // ✅ 强制使用 WebSocket 发送（移除 webhook fallback）
   if (options.accountId && options.conversationId) {
+    log.info(`[WS-Text] 准备通过 WebSocket 发送文本消息: accountId=${options.accountId}, conversationId=${options.conversationId}, text="${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`);
+
     const wsSuccess = await sendViaWSAdapter(
       options.accountId,
       { conversationId: options.conversationId },
       body,
-      { log: options.log }
+      { log }
     );
+
     if (wsSuccess) {
+      log.info(`[WS-Text] ✅ WebSocket 发送成功`);
       return { ok: true, viaWS: true };
+    } else {
+      log.error(`[WS-Text] ❌ WebSocket 发送失败，且 webhook 已禁用`);
+      return { ok: false, error: 'WebSocket send failed and webhook is disabled' };
     }
   }
 
-  return (
-    await intclawHttp.post(sessionWebhook, body, {
-      headers: {
-        "x-acs-intclaw-access-token": token,
-        "Content-Type": "application/json",
-      },
-    })
-  ).data;
+  log.error(`[WS-Text] ❌ 缺少必要参数 (accountId=${options.accountId}, conversationId=${options.conversationId})，无法发送消息`);
+  return { ok: false, error: 'Missing accountId or conversationId for WebSocket send' };
 }
 
 /**

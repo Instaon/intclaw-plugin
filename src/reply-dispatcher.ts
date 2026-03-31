@@ -145,20 +145,26 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
     
     const errorMessage = errorMessages[errorType];
     log.warn(`[IntClaw][Fallback] ${errorMessage}, error: ${originalError}`);
-    
+
+    // ✅ 使用 WebSocket 发送错误消息（移除 webhook）
     try {
-      await sendMessage(
-        account.config as IntclawConfig,
-        sessionWebhook,
-        errorMessage,
+      const wsSuccess = await sendViaWSAdapter(
+        accountId,
+        { conversationId },
         {
-          useMarkdown: false,
-          log: params.runtime.log,
-        }
+          msgtype: 'text',
+          text: { content: errorMessage }
+        },
+        { log: params.runtime.log }
       );
-      deliveredErrorTypes.add(errorKey);
-      lastErrorTime = now;
-      log.info(`[IntClaw][Fallback] ✅ 错误消息发送成功`);
+
+      if (wsSuccess) {
+        deliveredErrorTypes.add(errorKey);
+        lastErrorTime = now;
+        log.info(`[IntClaw][Fallback] ✅ 错误消息已通过 WebSocket 发送`);
+      } else {
+        log.error(`[IntClaw][Fallback] ❌ WebSocket 发送失败，无法发送错误消息`);
+      }
     } catch (fallbackErr: any) {
       log.error(`[IntClaw][Fallback] ❌ 错误消息发送失败：${fallbackErr.message}`);
     }
@@ -314,20 +320,21 @@ export function createIntclawReplyDispatcher(params: CreateIntclawReplyDispatche
           log.info(`[WS-Streaming] 发送 response.output_text.delta 事件，文本长度=${text.length}`);
           try {
             const target = { conversationId: conversationId };
-            await sendViaWSAdapter(accountId, target, {
+            const wsSuccess = await sendViaWSAdapter(accountId, target, {
               msgtype: 'text',
               text: { content: text }
             }, { log: params.runtime.log });
-            log.info(`[WS-Streaming] ✅ response.output_text.delta 发送成功`);
+
+            if (wsSuccess) {
+              log.info(`[WS-Streaming] ✅ response.output_text.delta 发送成功`);
+            } else {
+              log.error(`[WS-Streaming] ❌ WebSocket 发送失败，且 webhook 已禁用`);
+              // ✅ 不降级到 webhook，直接记录失败
+              params.runtime.error?.(`[WS-Streaming] WebSocket send failed and webhook is disabled`);
+            }
           } catch (wsErr: any) {
-            log.error(`[WS-Streaming] ❌ 发送 response.output_text.delta 失败：${wsErr.message}`);
-            // 降级到普通消息
-            await sendMessage(
-              account.config as IntclawConfig,
-              sessionWebhook,
-              text,
-              { useMarkdown: true, log: params.runtime.log }
-            );
+            log.error(`[WS-Streaming] ❌ 发送 response.output_text.delta 异常：${wsErr.message}`);
+            params.runtime.error?.(`[WS-Streaming] WebSocket send error: ${wsErr.message}`);
           }
           deliveredFinalTexts.add(text);
           return;

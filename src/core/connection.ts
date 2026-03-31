@@ -154,10 +154,12 @@ export async function monitorSingleAccount(
     // 回复响应
     socketCallBackResponse: (messageId: string, payload: any) => {
       if (client.socket && client.socket.readyState === WebSocket.OPEN) {
-        client.socket.send(JSON.stringify({
+        const responsePacket = JSON.stringify({
           headers: { messageId },
           data: payload
-        }));
+        });
+        logger.info(`[WS发送] 回复确认: messageId=${messageId}, payload=${JSON.stringify(payload)}`);
+        client.socket.send(responsePacket);
       }
     },
     
@@ -627,7 +629,7 @@ export async function monitorSingleAccount(
           data,
           sessionWebhook: data.sessionWebhook,
           runtime,
-          log,
+          log: logger,  // 使用本地 logger 而不是 runtime?.log
           cfg: clawdbotConfig,
         });
 

@@ -64,7 +64,20 @@ export async function sendViaWSAdapter(
       },
       data: JSON.stringify(eventObj)
     };
-    socket.send(JSON.stringify(envelope));
+    const envelopeStr = JSON.stringify(envelope);
+
+    // 详细日志：显示完整的事件内容和文本内容
+    let contentPreview = '';
+    if (eventObj.type === 'response.output_text.delta') {
+      contentPreview = `, text="${eventObj.delta?.text || ''}"`;
+    } else if (eventObj.type === 'response.output_item.added') {
+      contentPreview = `, item_type=${eventObj.item?.type}`;
+    }
+
+    log?.info?.(`[WS发送] 流式响应: type=${eventObj.type}, response_id=${eventObj.response_id || 'N/A'}${contentPreview}, envelope_size=${envelopeStr.length} bytes`);
+    log?.info?.(`[WS发送] 完整事件数据: ${JSON.stringify(eventObj).slice(0, 300)}...`);
+
+    socket.send(envelopeStr);
   };
 
   try {
