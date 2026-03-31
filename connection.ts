@@ -88,17 +88,29 @@ export class WebSocketConnection {
   async connect(accountId?: string): Promise<void> {
     // Check if enabled and credentials are configured
     if (!this.config.enabled) {
-      this.logger.info('Connection disabled, skipping connect');
+      this.logger.warn('Connection disabled, skipping connect', {
+        reason: this.config.enabled === false
+          ? 'enabled is explicitly set to false'
+          : 'enabled field is missing or falsy',
+        enabled: this.config.enabled,
+        wsUrl: this.config.wsUrl,
+      });
       return;
     }
 
     if (!this.config.clientId || this.config.clientId.trim() === '') {
-      this.logger.warn('clientId not configured, skipping connect');
+      this.logger.warn('clientId not configured, skipping connect', {
+        hasClientId: !!this.config.clientId,
+        clientIdType: typeof this.config.clientId,
+      });
       return;
     }
 
     if (!this.config.clientSecret || this.config.clientSecret.trim() === '') {
-      this.logger.warn('clientSecret not configured, skipping connect');
+      this.logger.warn('clientSecret not configured, skipping connect', {
+        hasClientSecret: !!this.config.clientSecret,
+        clientSecretType: typeof this.config.clientSecret,
+      });
       return;
     }
 
@@ -141,11 +153,17 @@ export class WebSocketConnection {
       this.startHeartbeat();
     } catch (error) {
       const err = error as Error;
+      const wsError = err as any;
       this.logger.error('Failed to establish WebSocket connection', err, {
         url: this.config.wsUrl,
         attempt: this.reconnectAttempts,
-        errorCode: (err as any).code,
+        errorCode: wsError.code,
         errorMessage: err.message,
+        errorName: err.name,
+        // Network-level diagnostics
+        syscall: wsError.syscall,
+        hostname: wsError.hostname,
+        osError: wsError.osError,
       });
 
       // Trigger reconnection
@@ -251,8 +269,10 @@ export class WebSocketConnection {
     this.ws.on('error', (error: Error) => {
       this.logger.error('WebSocket error', error, {
         state: this.state,
+        readyState: this.ws?.readyState,
         errorCode: (error as any).code,
         errorMessage: error.message,
+        syscall: (error as any).syscall,
         timestamp: Date.now(),
       });
     });
@@ -464,10 +484,12 @@ export class WebSocketConnection {
       await this.connect();
     } catch (error) {
       const err = error as Error;
+      const wsError = err as any;
       this.logger.error('Reconnection attempt failed', err, {
         attempt: this.reconnectAttempts,
-        errorCode: (err as any).code,
+        errorCode: wsError.code,
         errorMessage: err.message,
+        syscall: wsError.syscall,
         willRetry: !this.isStopped,
       });
       // connect() will trigger another reconnection attempt
@@ -592,26 +614,40 @@ export async function monitorInstaClawProvider(
   
   // Extract plugin configuration
   const config = cfg.channels?.["insta-claw-connector"];
-  
-  // Validate configuration
-  if (!config?.enabled) {
+
+  // Initialize logger early for configuration diagnostics
+  const logger = new DebugLogger(config?.debug ?? false, `[InstaClaw:${accountId}]`);
+
+  logger.info('Resolved configuration', {
+    hasConfig: !!config,
+    enabled: config?.enabled,
+    hasClientId: !!config?.clientId,
+    clientIdLength: config?.clientId?.length ?? 0,
+    hasClientSecret: !!config?.clientSecret,
+    wsUrl: WS_URL,
+  });
+
+  // Validate configuration: enabled defaults to true when field is absent
+  if (config?.enabled === false) {
     const error = new Error("InstaClaw connector is not enabled in configuration");
     throw error;
   }
-  
+
+  if (!config) {
+    const error = new Error("No configuration found for insta-claw-connector channel");
+    throw error;
+  }
+
   if (!config.clientId || config.clientId.trim() === '') {
     const error = new Error("Missing required configuration: clientId must be provided and non-empty");
     throw error;
   }
-  
+
   if (!config.clientSecret || config.clientSecret.trim() === '') {
     const error = new Error("Missing required configuration: clientSecret must be provided and non-empty");
     throw error;
   }
-  
-  // Initialize logger
-  const logger = new DebugLogger(config.debug ?? false, `[InstaClaw:${accountId}]`);
-  
+
   logger.info('Starting InstaClaw provider monitor', {
     accountId,
     wsUrl: WS_URL,
@@ -800,7 +836,7 @@ export async function monitorInstaClawProvider(
     wsUrl: WS_URL,
     clientId: config.clientId,
     clientSecret: config.clientSecret,
-    enabled: config.enabled,
+    enabled: config.enabled !== false, // Default to true when not explicitly set
     heartbeatInterval: HEARTBEAT_INTERVAL,
     reconnectMaxAttempts: 0, // Infinite reconnection
   };

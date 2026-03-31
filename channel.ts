@@ -9,6 +9,7 @@
  */
 
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
 import { monitorInstaClawProvider } from "./connection";
 import { createEnvelope, textToEventSequence } from "./protocol";
 import { DebugLogger } from "./logger";
@@ -16,6 +17,66 @@ import { WS_URL } from "./config";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+
+const CHANNEL_ID = "insta-claw-connector" as const;
+
+/**
+ * Resolved account type for InstaClaw connector
+ */
+interface ResolvedInstaClawAccount {
+  accountId: string;
+  enabled: boolean;
+  configured: boolean;
+  name?: string;
+  clientId?: string;
+  clientSecret?: string;
+  systemPrompt?: string;
+  config: Record<string, unknown>;
+}
+
+/**
+ * List all InstaClaw account IDs.
+ * Currently supports only the default account.
+ */
+function listInstaClawAccountIds(cfg: any): string[] {
+  const accounts = cfg.channels?.[CHANNEL_ID]?.accounts;
+  if (!accounts || typeof accounts !== "object") {
+    return [DEFAULT_ACCOUNT_ID];
+  }
+  const ids = Object.keys(accounts).filter(Boolean);
+  return ids.length > 0 ? [...ids].sort() : [DEFAULT_ACCOUNT_ID];
+}
+
+/**
+ * Resolve a complete InstaClaw account with merged config.
+ */
+function resolveInstaClawAccount(cfg: any, accountId?: string | null): ResolvedInstaClawAccount {
+  const hasExplicitAccountId = typeof accountId === "string" && accountId.trim() !== "";
+  const resolvedAccountId = hasExplicitAccountId ? accountId! : DEFAULT_ACCOUNT_ID;
+  const channelCfg = cfg.channels?.[CHANNEL_ID] ?? {};
+
+  // For named accounts, merge with base config
+  let merged = { ...channelCfg };
+  if (hasExplicitAccountId && channelCfg.accounts?.[resolvedAccountId]) {
+    const { accounts: _ignored, defaultAccount: _ignoredDefault, ...base } = channelCfg;
+    merged = { ...base, ...channelCfg.accounts[resolvedAccountId] };
+  }
+
+  const enabled = merged.enabled !== false;
+  const clientId = typeof merged.clientId === "string" ? merged.clientId.trim() || undefined : undefined;
+  const clientSecret = typeof merged.clientSecret === "string" ? merged.clientSecret.trim() || undefined : undefined;
+
+  return {
+    accountId: resolvedAccountId,
+    enabled,
+    configured: Boolean(clientId && clientSecret),
+    name: typeof merged.name === "string" ? merged.name.trim() || undefined : undefined,
+    clientId,
+    clientSecret,
+    systemPrompt: typeof merged.systemPrompt === "string" ? merged.systemPrompt.trim() || undefined : undefined,
+    config: merged,
+  };
+}
 
 /**
  * Global WebSocket connection storage
@@ -43,11 +104,12 @@ async function sendTextMessage(
   text: string,
   accountId?: string
 ): Promise<void> {
-  const config = cfg.channels?.["insta-claw-connector"];
+  const account = resolveInstaClawAccount(cfg, accountId);
+  const config = account.config;
   const logger = new DebugLogger(config?.debug ?? false, `[InstaClaw:outbound]`);
-  
+
   // Validate configuration
-  if (!config?.enabled) {
+  if (!account.enabled) {
     const error = new Error('InstaClaw connector is not enabled');
     logger.error('Cannot send message: connector disabled', error);
     throw error;
@@ -217,6 +279,81 @@ export const instaClawPlugin: ChannelPlugin = {
   },
   
   /**
+   * Config adapter (required)
+   * Manages account resolution and configuration
+   */
+  config: {
+    listAccountIds: (cfg) => listInstaClawAccountIds(cfg),
+    resolveAccount: (cfg, accountId) => resolveInstaClawAccount(cfg, accountId),
+    defaultAccountId: () => DEFAULT_ACCOUNT_ID,
+    setAccountEnabled: ({ cfg, accountId, enabled }) => {
+      const isDefault = accountId === DEFAULT_ACCOUNT_ID;
+      if (isDefault) {
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            [CHANNEL_ID]: {
+              ...cfg.channels?.[CHANNEL_ID],
+              enabled,
+            },
+          },
+        };
+      }
+      const channelCfg = cfg.channels?.[CHANNEL_ID] ?? {};
+      return {
+        ...cfg,
+        channels: {
+          ...cfg.channels,
+          [CHANNEL_ID]: {
+            ...channelCfg,
+            accounts: {
+              ...channelCfg.accounts,
+              [accountId]: {
+                ...channelCfg.accounts?.[accountId],
+                enabled,
+              },
+            },
+          },
+        },
+      };
+    },
+    deleteAccount: ({ cfg, accountId }) => {
+      if (accountId === DEFAULT_ACCOUNT_ID) {
+        const next = { ...cfg };
+        const nextChannels = { ...cfg.channels };
+        delete nextChannels[CHANNEL_ID];
+        next.channels = Object.keys(nextChannels).length > 0 ? nextChannels : undefined;
+        return next;
+      }
+      const channelCfg = cfg.channels?.[CHANNEL_ID] ?? {};
+      const accounts = { ...channelCfg.accounts };
+      delete accounts[accountId];
+      return {
+        ...cfg,
+        channels: {
+          ...cfg.channels,
+          [CHANNEL_ID]: {
+            ...channelCfg,
+            accounts: Object.keys(accounts).length > 0 ? accounts : undefined,
+          },
+        },
+      };
+    },
+    isConfigured: (account) => (account as ResolvedInstaClawAccount).configured,
+    describeAccount: (account) => {
+      const a = account as ResolvedInstaClawAccount;
+      return {
+        accountId: a.accountId,
+        enabled: a.enabled,
+        configured: a.configured,
+        name: a.name,
+        clientId: a.clientId,
+      };
+    },
+  },
+
+  /**
    * Gateway methods
    * Manages the connection lifecycle
    */
@@ -235,12 +372,28 @@ export const instaClawPlugin: ChannelPlugin = {
      */
     startAccount: async (ctx) => {
       const { cfg, accountId, abortSignal } = ctx;
+      const account = resolveInstaClawAccount(cfg, accountId);
+
+      if (!account.enabled) {
+        ctx.log?.info?.(`insta-claw-connector[${accountId}] is disabled, skipping startup`);
+        return new Promise<void>((resolve) => {
+          if (ctx.abortSignal?.aborted) {
+            resolve();
+            return;
+          }
+          ctx.abortSignal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+      }
+
+      if (!account.configured) {
+        throw new Error(`InstaClaw account "${accountId}" is not properly configured (missing clientId/clientSecret)`);
+      }
 
       // --- Write clientId/clientSecret to openclaw config for yintai_tasks_runner skill ---
-      const connectorCfg = cfg.channels?.["insta-claw-connector"];
+      const connectorCfg = account.config;
       const logger = new DebugLogger(connectorCfg?.debug ?? false, `[InstaClaw:startAccount]`);
 
-      if (connectorCfg?.clientId && connectorCfg?.clientSecret) {
+      if (account.clientId && account.clientSecret) {
         const openclawConfigPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
         try {
           let openclawConfig: any = {};
@@ -257,9 +410,9 @@ export const instaClawPlugin: ChannelPlugin = {
 
             openclawConfig.skills.entries.yintai_tasks_runner = {
               enabled: true,
-              apiKey: String(connectorCfg.clientId),
+              apiKey: String(account.clientId),
               env: {
-                YINTAI_APP_SECRET: String(connectorCfg.clientSecret),
+                YINTAI_APP_SECRET: String(account.clientSecret),
               },
             };
 
@@ -272,7 +425,7 @@ export const instaClawPlugin: ChannelPlugin = {
             fs.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), "utf-8");
             logger.info("Wrote yintai_tasks_runner skill config to openclaw.json", {
               configPath: openclawConfigPath,
-              apiKeyLength: String(connectorCfg.clientId).length,
+              apiKeyLength: String(account.clientId).length,
             });
           } else {
             logger.debug("yintai_tasks_runner skill already configured, skipping write");
