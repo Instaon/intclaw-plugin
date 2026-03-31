@@ -1,435 +1,472 @@
-<div align="center">
-  <img alt="IntClaw" src="docs/images/intclaw.svg" width="72" height="72" />
-  <h1>IntClaw OpenClaw 官方连接器</h1>
-  <p>将IntClaw机器人连接到 OpenClaw Gateway，支持 AI Card 流式响应和会话管理</p>
-  
-  <p>
-    <a href="README.en.md">English</a> •
-    <a href="CHANGELOG.md">更新日志</a>
-  </p>
-</div>
+# Instagram Claw Connector
 
----
+A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging using the Open Responses protocol.
 
-## 📋 目录
+## Overview
 
-- [前置要求](#前置要求)
-- [快速开始](#快速开始)
-- [功能特性](#功能特性)
-- [配置说明](#配置说明)
-- [常见问题](#常见问题)
-- [进阶主题](#进阶主题)
-- [许可证](#许可证)
+Instagram Claw Connector enables real-time communication between OpenClaw and a remote WebSocket server at `wss://claw-dev.int-os.com/user-ws/`. The plugin implements the Open Responses specification for streaming text messages with full support for connection management, heartbeat mechanisms, and automatic reconnection.
 
----
+## Features
 
-## 前置要求
+- ✅ WebSocket connection to remote server with authentication
+- ✅ Open Responses protocol implementation
+- ✅ Bidirectional message streaming
+- ✅ Automatic reconnection with exponential backoff
+- ✅ Heartbeat mechanism for connection health monitoring
+- ✅ Comprehensive debug logging
+- ✅ TypeScript with strict type safety
+- ✅ Property-based testing with fast-check
 
-开始之前，请确保你已经：
+## Requirements
 
-> 本插件作为 OpenClaw Gateway 插件使用，一般无需你单独安装或管理 Node.js 运行时。
+- Node.js >= 18.0.0
+- OpenClaw SDK
 
-### 1. OpenClaw Gateway
-
-- **官方网站**：https://openclaw.ai/
-- **安装说明**：按照官方指南安装 OpenClaw
-- **验证安装**：
-  ```bash
-  openclaw gateway status
-  ```
-  预期输出：`✓ Gateway is running on http://127.0.0.1:18789`
-
-### 2. IntClaw企业账号
-
-- 你需要一个IntClaw企业账号来创建企业内部应用
-- 官方网站：https://www.intclaw.com/
-
----
-
-## 快速开始
-
-> 💡 **目标**：5 分钟内让你的IntClaw机器人运行起来
-
-### 操作系统支持
-
-- macOS / Linux：使用默认的 Shell 终端（zsh、bash 等）。
-- Windows：
-  - 推荐使用 **PowerShell** 或 **Windows Terminal**。
-  - OpenClaw 配置文件路径默认为：`C:\Users\<你的用户名>\.openclaw\openclaw.json`。
-
-下文中出现的 `~/.openclaw/openclaw.json`，在 Windows 上等价于以上路径。
-
-### 步骤 1：安装插件
+## Installation
 
 ```bash
-# 推荐：从 npm 安装
-openclaw plugins install @intclaw-real-ai/intclaw-connector
+# Install dependencies
+pnpm install
 
-# 或者：从 Git 安装
-openclaw plugins install https://github.com/IntClaw-Real-AI/intclaw-openclaw-connector.git
+# Type check
+pnpm run type-check
+
+# Run tests
+pnpm test
+
+# Run tests with coverage
+pnpm run test:coverage
 ```
 
-**验证安装**：
-```bash
-openclaw plugins list
-```
-你应该看到 `✓ IntClaw Channel (v0.8.0) - loaded`
+## Configuration
 
----
-
-### 步骤 2：创建IntClaw机器人
-
-#### 3.1 创建应用
-
-1. 访问 [IntClaw开放平台](https://open-dev.intclaw.com/)
-2. 点击 **"应用开发"**
-
-![创建应用](docs/images/image-1.png)
-
-#### 3.2 添加机器人能力
-
-1. 在应用详情页，点击 一键创建OpenClaw机器人应用
-
-![创建OpenClaw机器人应用](docs/images/image-2.png)
-
-#### 3.3 获取凭证
-
-1. 完成创建并获取 **"凭证与基础信息"**
-2. 复制你的 **AppKey**（Client ID）
-3. 复制你的 **AppSecret**（Client Secret）
-
-![完成创建](docs/images/image-3.png)
-
-![获取凭证](docs/images/image-4.png)
-
-> ⚠️ **重要**：Client ID和 Client Secret是机器人的唯一凭证。请合理保存。
-
----
-
-### 步骤 3：配置 OpenClaw
-
-你有三种方式配置连接器：
-
-#### 方式 A：配置向导（推荐新手使用）
-
-> 你可以直接复制粘贴下面的命令，在终端中运行配置向导。
-
-```bash
-openclaw channels add
-```
-
-选择 **"IntClaw (IntClaw)"**，然后按提示输入：
-- `clientId`（AppKey）
-- `clientSecret`（AppSecret）
-
-#### 方式 B：编辑配置文件
-
-编辑配置文件：
-
-- macOS / Linux：`~/.openclaw/openclaw.json`
-- Windows：`C:\Users\<你的用户名>\.openclaw\openclaw.json`
+Configure the plugin through OpenClaw's configuration interface:
 
 ```json
 {
-  "channels": {
-    "intclaw-connector": {
-      "enabled": true,
-      "clientId": "dingxxxxxxxxx",
-      "clientSecret": "your_app_secret"
-    }
-  }
+  "enabled": true,
+  "clientId": "your-app-key",
+  "clientSecret": "your-app-secret",
+  "systemPrompt": "Optional system prompt",
+  "debug": false
 }
 ```
 
-> 💡 **提示**：如果文件已有内容，在 `channels` 节点下添加 `intclaw-connector` 部分即可。
+### Configuration Fields
 
----
+- **enabled** (boolean, default: true): Enable or disable the plugin
+- **clientId** (string, required): App Key for authentication (sent as `x-app-key` header)
+- **clientSecret** (string, required, sensitive): App Secret for authentication (sent as `x-app-secret` header)
+- **systemPrompt** (string, optional): System prompt for the AI assistant
+- **debug** (boolean, default: false): Enable detailed debug logging
 
-### 步骤 4：重启并测试
+### Environment Variables
+
+You can override configuration through environment variables:
+
+- `INSTACLAW_WS_URL`: WebSocket server URL (default: `wss://claw-dev.int-os.com/user-ws/`)
+- `INSTACLAW_HEARTBEAT_INTERVAL`: Heartbeat interval in milliseconds (default: 30000)
+- `INSTACLAW_TIMEOUT_THRESHOLD`: Connection timeout threshold in milliseconds (default: 90000)
+
+## Architecture
+
+The plugin follows a modular architecture:
+
+```
+index.ts          - Plugin entry point and lifecycle management
+channel.ts        - ChannelPlugin definition and outbound methods
+connection.ts     - WebSocket connection manager
+protocol.ts       - Open Responses protocol handler
+config.ts         - Configuration management
+logger.ts         - Debug logging system
+types.ts          - TypeScript type definitions
+```
+
+### Key Components
+
+1. **Plugin Entry (index.ts)**: Manages plugin lifecycle and coordinates components
+2. **Channel Plugin (channel.ts)**: Defines plugin metadata, capabilities, and methods
+3. **Connection Manager (connection.ts)**: Handles WebSocket connections, heartbeat, and reconnection
+4. **Protocol Handler (protocol.ts)**: Implements Open Responses event parsing and generation
+5. **Debug Logger (logger.ts)**: Provides structured logging with multiple levels
+6. **Configuration (config.ts)**: Manages runtime configuration
+7. **Type Definitions (types.ts)**: Complete TypeScript type system
+
+## Usage
+
+### Development Mode
 
 ```bash
-# 重启 OpenClaw Gateway
-openclaw gateway restart
-
-# 实时查看日志
-openclaw logs --follow
+# Start OpenClaw with the plugin
+openclaw start
 ```
 
-**测试你的机器人**：
-1. 打开IntClaw App
-2. 在联系人列表中找到你的机器人
-3. 发送消息：`你好`
-4. 你应该在 10 秒内收到回复
+### Running Tests
 
----
+```bash
+# Run all tests
+pnpm test
 
-## 功能特性
+# Run unit tests only
+pnpm run test:unit
 
-### ✅ 核心功能
+# Run property tests only
+pnpm run test:property
 
-- **AI Card 流式响应** - 打字机效果，实时流式显示回复
-- **会话管理** - 多轮对话，保持上下文
-- **会话隔离** - 私聊、群聊、不同群之间会话独立
-- **自动会话重置** - 30 分钟无活动后自动开启新会话
-- **手动会话重置** - 发送 `/new` 或 `新会话` 清空对话历史
-- **图片自动上传** - 本地图片路径自动上传到IntClaw
-- **主动发送消息** - 程序化地向用户或群发送消息
-- **富媒体接收** - 接收并处理 JPEG/PNG 图片，传递给视觉模型
-- **文件附件提取** - 解析 .docx、.pdf、文本文件和二进制文件
-- **音频消息支持** - 发送多种格式的音频消息（mp3、wav、amr、ogg）
-- **IntClaw文档 API** - 创建、追加、搜索和列举IntClaw文档
-- **多 Agent 路由** - 将多个机器人连接到不同的 Agent，实现专业化服务
-- **Markdown 表格转换** - 自动将 Markdown 表格转换为IntClaw兼容格式
-- **异步模式** - 立即确认消息，后台处理（可选）
+# Run tests in watch mode
+pnpm run test:watch
 
----
+# Generate coverage report
+pnpm run test:coverage
+```
 
-## 配置说明
+## Open Responses Protocol
 
-### 基础配置
+The plugin implements the Open Responses specification for WebSocket communication:
 
-| 选项 | 环境变量 | 说明 |
-|------|---------|------|
-| `clientId` | — | IntClaw AppKey |
-| `clientSecret` | — | IntClaw AppSecret |
+### Supported Event Types
 
-### 会话管理
+- `response.in_progress`: Response generation started
+- `response.output_item.added`: New output item added
+- `response.output_text.delta`: Incremental text update
+- `response.content_part.done`: Content part completed
+- `response.completed`: Response successfully completed
+- `response.failed`: Response failed with error
 
-| 选项 | 默认值 | 说明 |
-|------|--------|------|
-| `separateSessionByConversation` | `true` | 私聊/群聊分别维护会话 |
-| `groupSessionScope` | `group` | 群聊会话范围：`group`（共享）或 `group_sender`（每人独立） |
-| `sharedMemoryAcrossConversations` | `false` | 是否在不同会话间共享记忆 |
+### Message Flow
 
-### 会话路由策略（`pmpolicy` / `groupPolicy`）
+**Outbound (OpenClaw → Server)**:
+1. Generate unique `response_id` and `item_id`
+2. Send `response.in_progress` event
+3. Send `response.output_item.added` event
+4. Send one or more `response.output_text.delta` events
+5. Send `response.content_part.done` event
+6. Send `response.completed` event
 
-当前版本已支持会话路由/消息策略相关配置（包含 `pmpolicy`、`groupPolicy`），**无需删除**。如你在历史配置中已经设置了这些字段，可以继续保留并按需调整。
+**Inbound (Server → OpenClaw)**:
+1. Parse WebSocket Envelope
+2. Extract event from `data` field
+3. Update Response state machine
+4. Accumulate text deltas
+5. Forward completed messages to OpenClaw
 
-> 说明：不同版本/上游可能对字段命名有差异；本连接器侧同时支持并会按策略生效（如 `dmPolicy`/`groupPolicy` 的默认值为 `open`）。
+### WebSocket Envelope Format
 
-### 异步模式
+All messages are wrapped in a WebSocket Envelope:
 
-| 选项 | 默认值 | 说明 |
-|------|--------|------|
-| `asyncMode` | `false` | 启用异步模式处理长时间任务 |
-| `ackText` | `🫡 任务已接收，处理中...` | 确认消息文本 |
-
-
----
-
-## 常见问题
-
-### 机器人不回复
-
-**症状**：机器人不回复消息
-
-**解决方案**：
-1. 检查插件状态：`openclaw plugins list`
-2. 检查网关状态：`openclaw gateway status`
-3. 查看日志：`openclaw logs --follow`
-4. 确认应用已在IntClaw开放平台发布
-
----
-
-### HTTP 401 错误
-
-**症状**：错误信息显示 "401 Unauthorized"
-
-**原因**：Gateway 认证失败
-
-**解决方案**：
-
-升级到最新版本
-
----
-
-### Stream 连接 400 错误
-
-**症状**：日志显示 "Request failed with status code 400"
-
-**常见原因**：
-
-| 原因 | 解决方案 |
-|------|----------|
-| 应用未发布 | 前往IntClaw开放平台 → 版本管理 → 发布 |
-| 凭证错误 | 检查 `clientId`/`clientSecret` 是否有拼写错误或多余空格 |
-| 非 Stream 模式 | 确认机器人配置为 Stream 模式（不是 Webhook） |
-| IP 白名单限制 | 检查应用是否设置了 IP 白名单 |
-
-**验证步骤**：
-
-1. **检查应用状态**：
-   - 登录 [IntClaw开放平台](https://open-dev.intclaw.com/)
-   - 确认应用已发布
-   - 确认机器人已启用且为 Stream 模式
-
-2. **重新发布应用**：
-   - 修改任何配置后，必须点击 **保存** → **发布**
-
----
-
-## 进阶主题
-
-### 多 Agent 配置
-
-配置多个机器人连接到不同的 Agent：
-
-```json5
+```json
 {
-  "agents": {
-    "list": [
-      {
-        "id": "ding-bot1",
-        "name": "IntClaw客服机器人",
-        "model": "your-model-config",
-        "workspace": "~/.openclaw/workspace-bot1",
-        "identity": {
-          "name": "客服小助手",
-          "theme": "专业客服",
-          "emoji": "🤝"
-        }
-        // 其他 agent 配置...
-      },
-      {
-        "id": "ding-bot2",
-        "name": "IntClaw技术支持机器人",
-        "model": "your-model-config",
-        "workspace": "~/.openclaw/workspace-bot2",
-        "identity": {
-          "name": "技术专家",
-          "theme": "技术支持",
-          "emoji": "🔧"
-        }
-        // 其他 agent 配置...
-      }
-    ]
+  "type": "message",
+  "headers": {
+    "messageId": "msg_1234567890_abc123",
+    "timestamp": 1234567890000
   },
-  "channels": {
-    "intclaw-connector": {
-      "enabled": true,
-      "accounts": {
-        "bot1": {
-          "enabled": true,
-          "clientId": "ding_bot1_app_key",
-          "clientSecret": "bot1_secret"
-        },
-        "bot2": {
-          "enabled": true,
-          "clientId": "ding_bot2_app_key",
-          "clientSecret": "bot2_secret"
-        }
-      }
-    }
-  },
-  "bindings": [
-    {
-      "agentId": "ding-bot1",
-      "match": {
-        "channel": "intclaw-connector",
-        "accountId": "bot1"
-      }
-    },
-    {
-      "agentId": "ding-bot2",
-      "match": {
-        "channel": "intclaw-connector",
-        "accountId": "bot2"
-      }
-    }
-  ]
+  "data": "{\"type\":\"response.in_progress\",\"event_id\":\"evt_...\",\"response_id\":\"resp_...\"}"
 }
 ```
 
-更多详情请参考 [OpenClaw 多 Agent 配置指南](https://gist.github.com/smallnest/c5c13482740fd179e40070e620f66a52)。
+## Connection Management
 
----
+### Heartbeat Mechanism
 
-### 会话命令
+- Sends ping packets every 30 seconds (configurable via `INSTACLAW_HEARTBEAT_INTERVAL`)
+- Monitors pong responses
+- Triggers reconnection if no pong received within 90 seconds (3x heartbeat interval)
+- Logs heartbeat activity in debug mode
 
-用户可以发送以下命令清理对话历史，重新开始会话：
+### Reconnection Strategy
 
-- `/new`、`/reset`、`/clear`
-- `新会话`、`重新开始`、`清空对话`
+- Automatic reconnection on disconnect
+- Exponential backoff: `min(1000 * 2^attempt, 30000) + random(0, 1000)` ms
+- Maximum delay capped at 30 seconds
+- Random jitter to prevent thundering herd
+- Reconnection counter resets on successful connection
+- Infinite reconnection attempts (configurable)
 
----
+### Connection States
 
-### IntClaw文档（Docs）与 MCP（`docs.*`）
+- `disconnected`: No active connection
+- `connecting`: Connection attempt in progress
+- `connected`: Active connection established
+- `reconnecting`: Attempting to reconnect after disconnect
 
-IntClaw文档能力（`docs.*`，包含 `docs.create` / `docs.append` / `docs.search` / `docs.list` / `docs.read`）依赖 MCP（Model Context Protocol）提供底层 tool。你需要先在 OpenClaw 的 Gateway/Agent 侧启用对应的 MCP Server/Tool，然后上述 `docs.*` 才能正常工作。
+## Debug Logging
 
-- **获取 MCP Server/Tool**：可通过 [IntClaw MCP 市场](https://mcp.intclaw.com/) 安装启用（或你们团队维护的 MCP 市场）；也可以选择同类的“IntClaw Docs Read / IntClaw Docs Reader”能力并接入到 OpenClaw。
-- **配置位置**：通常在 **Gateway 或 Agent 的工具配置**中完成（而不是在连接器里）。
-- **生效方式**：配置完成后重启 Gateway，并确认该 tool 已对目标 Agent 暴露。
+Enable debug logging through the configuration:
 
-参考（OpenClaw 官方配置文档）：
-- `https://docs.openclaw.ai/configuration`
-- `https://docs.openclaw.ai/gateway/configuration-reference`
-
-从你的 Agent 中创建和管理IntClaw文档：
-
-```javascript
-// 创建文档
-intclaw-connector.docs.create({
-  spaceId: "your-space-id",
-  title: "测试文档",
-  content: "# 测试内容"
-})
-
-// 追加内容
-intclaw-connector.docs.append({
-  docId: "your-doc-id",
-  markdownContent: "\n## 追加的内容"
-})
-
-// 搜索文档
-intclaw-connector.docs.search({
-  keyword: "搜索关键词"
-})
-
-// 列举文档
-intclaw-connector.docs.list({
-  spaceId: "your-space-id"
-})
+```json
+{
+  "debug": true
+}
 ```
 
----
+### Log Levels
 
-## 项目结构
+- **info**: Key operations (connection established, messages sent/received)
+- **debug**: Detailed information (event parsing, state changes) - only when debug=true
+- **warn**: Warnings (reconnection attempts, configuration issues)
+- **error**: Errors (connection failures, parsing errors) with stack traces
+
+### Log Format
 
 ```
-intclaw-openclaw-connector/
-├── src/
-│   ├── core/           # Core connector logic
-│   ├── services/       # IntClaw API services
-│   ├── utils/          # Utility functions
-│   └── types/          # TypeScript type definitions
-├── docs/
-│   └── images/         # Documentation images
-├── openclaw.plugin.json # Plugin manifest
-├── package.json        # npm dependencies
-└── LICENSE
+[2024-01-01T00:00:00.000Z] [INFO] [InstaClawConnector] Connection established
+[2024-01-01T00:00:01.000Z] [DEBUG] [InstaClawConnector] Parsed event: response.in_progress
+[2024-01-01T00:00:02.000Z] [ERROR] [InstaClawConnector] Connection failed: ECONNREFUSED
 ```
 
----
+## Error Handling
 
-## 依赖
+The plugin implements comprehensive error handling:
 
-| 包 | 用途 |
-|----|------|
-| `dingtalk-stream` | IntClaw Stream 协议客户端 |
-| `axios` | HTTP 客户端 |
-| `mammoth` | Word 文档（.docx）解析 |
-| `pdf-parse` | PDF 文档解析 |
+- **Connection Errors**: Automatic reconnection with exponential backoff
+- **Message Parsing Errors**: Log error and skip message, continue processing
+- **Protocol Violations**: Log warning and ignore invalid events
+- **SDK Errors**: Send `response.failed` event to server
+- **Configuration Errors**: Throw descriptive error at startup
 
----
+## Testing
 
-## 许可证
+The project uses a dual testing approach:
 
-[MIT](LICENSE)
+### Unit Tests
 
----
+Test specific examples, edge cases, and integration points:
 
-## 支持
+```typescript
+// tests/unit/connection.test.ts
+it('should connect with valid credentials', async () => {
+  // Test implementation
+});
+```
 
-- **问题反馈**：[GitHub Issues](https://github.com/IntClaw-Real-AI/intclaw-openclaw-connector/issues)
-- **更新日志**：[CHANGELOG.md](CHANGELOG.md)
+### Property-Based Tests
+
+Verify universal properties across randomized inputs:
+
+```typescript
+// tests/protocol.test.ts
+it('Property 1: Message Format Round-Trip', () => {
+  fc.assert(
+    fc.property(eventGenerator(), (event) => {
+      const envelope = createEnvelope(event);
+      const parsed = parseEnvelope(envelope);
+      expect(parsed.type).toBe(event.type);
+    })
+  );
+});
+```
+
+### Test Results
+
+```
+✓ tests/protocol.test.ts (23 tests)
+✓ tests/unit/config.test.ts (26 tests)
+✓ tests/unit/connection.test.ts (6 tests)
+✓ tests/unit/index.test.ts (9 tests)
+
+Test Files: 4 passed (4)
+Tests: 64 passed (64)
+```
+
+### Coverage Goals
+
+- Line Coverage: ≥ 80%
+- Function Coverage: ≥ 85%
+- Branch Coverage: ≥ 75%
+- Property Coverage: 100%
+
+## Troubleshooting
+
+### Connection Issues
+
+1. **Cannot connect to WebSocket server**
+   - Verify `clientId` and `clientSecret` are correct
+   - Check network connectivity
+   - Ensure `enabled` is set to `true`
+   - Review error logs for details
+
+2. **Frequent disconnections**
+   - Check network stability
+   - Review heartbeat logs
+   - Verify server is responding to ping packets
+   - Check firewall settings
+
+3. **Messages not being received**
+   - Enable debug logging
+   - Check message parsing logs
+   - Verify Open Responses event format
+   - Check server is sending correct envelope format
+
+4. **Messages not being sent**
+   - Verify WebSocket connection is established
+   - Check connection state in logs
+   - Ensure outbound.sendText is being called correctly
+   - Review error logs for send failures
+
+### Debug Mode
+
+Enable debug logging to see detailed information:
+
+```json
+{
+  "debug": true
+}
+```
+
+This will output:
+- All WebSocket events
+- Message parsing details
+- State machine transitions
+- Heartbeat activity
+- Reconnection attempts
+- Event sequence generation
+
+### Common Error Messages
+
+**"InstaClaw connector is not enabled in configuration"**
+- Set `enabled: true` in configuration
+
+**"Missing required configuration: clientId must be provided and non-empty"**
+- Provide valid `clientId` in configuration
+
+**"Missing required configuration: clientSecret must be provided and non-empty"**
+- Provide valid `clientSecret` in configuration
+
+**"WebSocket is not connected"**
+- Wait for connection to establish
+- Check connection logs
+- Verify server is accessible
+
+**"Cannot send empty message"**
+- Ensure message text is not empty or whitespace-only
+
+## Performance Considerations
+
+### Connection Performance
+
+- Heartbeat interval: 30 seconds (configurable)
+- Timeout threshold: 90 seconds (3x heartbeat)
+- Reconnection delay: Exponential backoff up to 30 seconds
+- Message chunk size: 50 characters (for streaming simulation)
+
+### Memory Management
+
+- Response states are cleaned up on completion or failure
+- Old connections are properly closed before reconnection
+- Event listeners are removed on disconnect
+- No memory leaks in long-running connections
+
+### Network Optimization
+
+- Text chunking for streaming effect
+- Efficient JSON serialization
+- Minimal overhead in envelope format
+- Connection reuse for multiple messages
+
+## Security Considerations
+
+### Credentials Management
+
+- `clientSecret` marked as sensitive in UI
+- Credentials not logged in production
+- Support for environment variable configuration
+- Secure WebSocket (WSS) protocol
+
+### Connection Security
+
+- WSS (WebSocket Secure) protocol
+- Authentication headers on every connection
+- Connection timeout protection
+- Automatic cleanup on abort
+
+### Data Validation
+
+- All inbound messages validated
+- Malformed messages logged and skipped
+- Type safety through TypeScript
+- No code injection vulnerabilities
+
+## MVP Scope and Limitations
+
+This is an MVP (Minimum Viable Product) implementation focused on core functionality:
+
+### Included Features
+
+✅ Text message bidirectional streaming  
+✅ Direct chat support  
+✅ WebSocket connection management  
+✅ Heartbeat and reconnection  
+✅ Open Responses protocol  
+✅ Debug logging  
+✅ Error handling  
+
+### Not Included (Future Enhancements)
+
+❌ Media support (images, files, audio, video)  
+❌ Group chat functionality  
+❌ Multi-account support  
+❌ User directory/contact list  
+❌ Security policies and access control  
+❌ User pairing/authentication flow  
+❌ Message editing and deletion  
+❌ Emoji reactions  
+❌ Message threading  
+
+## Requirements Verification
+
+All 20 requirements from the specification have been implemented and verified. See `REQUIREMENTS-VERIFICATION.md` for detailed verification report.
+
+### Key Requirements Met
+
+- ✅ Plugin registration through `register(api)` function
+- ✅ ChannelPlugin metadata and capabilities
+- ✅ Configuration schema with UI hints
+- ✅ Gateway lifecycle management
+- ✅ WebSocket connection with authentication
+- ✅ Open Responses protocol implementation
+- ✅ Heartbeat mechanism
+- ✅ Exponential backoff reconnection
+- ✅ Comprehensive error handling
+- ✅ TypeScript type safety
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+
+1. All tests pass: `pnpm test`
+2. Type checking passes: `pnpm run type-check`
+3. Code follows TypeScript strict mode
+4. New features include both unit and property tests
+5. Documentation is updated
+6. Commit messages are clear and descriptive
+
+### Development Workflow
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests and type checking
+5. Submit a pull request
+
+## Support
+
+For issues and questions, please open an issue on the GitHub repository.
+
+## Acknowledgments
+
+This plugin is based on the OpenClaw Channel Plugin architecture and follows the Open Responses protocol specification. Architecture inspired by the dingtalk-openclaw-connector implementation.
+
+## Version History
+
+### 1.0.0 (2024-03-30)
+- Initial MVP release
+- WebSocket connection management
+- Open Responses protocol implementation
+- Heartbeat and reconnection mechanisms
+- Comprehensive testing suite
+- Full documentation

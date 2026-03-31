@@ -1,11 +1,11 @@
 {
-  "id": "intclaw-connector",
-  "name": "IntClaw Channel",
-  "version": "1.1.8",
-  "description": "IntClaw (IntClaw) messaging channel via Stream mode with ai market streaming",
-  "author": "IntClaw Real Team",
+  "id": "instagram-claw-connector",
+  "name": "Instagram Claw Connector",
+  "version": "1.0.0",
+  "description": "A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging using Open Responses protocol",
+  "author": "Instagram Claw Team",
   "main": "index.ts",
-  "channels": ["intclaw-connector"],
+  "channels": ["instagram-claw-connector"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
