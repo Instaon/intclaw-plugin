@@ -58,6 +58,7 @@ __pycache__/
 docs/
 CHANGELOG.md
 README.en.md
+open-responses.md
 
 # Development scripts
 install-beta.sh
@@ -66,6 +67,5 @@ rename.js
 # Temporary files
 tmp/
 *.tmp
-
 # TypeScript (keep source files)
 # tsconfig.json - needed for type consumers
