@@ -196,6 +196,65 @@ export interface ContentPart {
 }
 
 // ============================================================================
+// Request-Response Types
+// ============================================================================
+
+/**
+ * Request envelope from server
+ * Represents the WebSocket Envelope format for server requests
+ * Validates: Requirements 2.1, 2.4
+ */
+export interface RequestEnvelope {
+  /** Message type for requests */
+  type: "request" | "message";
+  /** Message headers */
+  headers: {
+    /** Unique message identifier */
+    messageId: string;
+    /** Timestamp in milliseconds */
+    timestamp: number;
+    /** Optional request identifier for tracking */
+    requestId?: string;
+    /** Additional headers */
+    [key: string]: any;
+  };
+  /** Request data (JSON string) */
+  data: string;
+}
+
+/**
+ * Request content structure from server
+ * Represents the parsed content of a server request
+ * Validates: Requirements 2.1, 2.4
+ */
+export interface RequestContent {
+  /** Request type (e.g., "user.message") */
+  type: string;
+  /** User message content */
+  content: string;
+  /** User identifier */
+  userId: string;
+  /** Optional request identifier for tracking */
+  requestId?: string;
+}
+
+/**
+ * Response context for tracking request-response mapping
+ * Used to maintain context when generating responses to requests
+ * Validates: Requirements 2.4
+ */
+export interface ResponseContext {
+  /** Request identifier this response is for */
+  requestId: string;
+  /** User identifier from the request */
+  userId: string;
+  /** Timestamp when request was received */
+  requestTimestamp: number;
+  /** Optional additional context data */
+  metadata?: Record<string, any>;
+}
+
+// ============================================================================
 // Connection Configuration
 // ============================================================================
 

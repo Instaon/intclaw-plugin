@@ -4,6 +4,10 @@
  * This module defines the ChannelPlugin object that integrates with OpenClaw,
  * including metadata, capabilities, configuration schema, and gateway/outbound methods.
  * 
+ * IMPORTANT: This plugin acts as a REQUEST RESPONDER in the Open Responses protocol.
+ * The server sends requests to the plugin, and the plugin responds with event sequences.
+ * The plugin does NOT actively initiate messages - it only responds to server requests.
+ * 
  * Validates: Requirements 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4,
  *            5.1, 5.2, 5.3, 5.4, 5.5, 8.1, 8.2, 8.3, 8.4, 8.5, 1.3
  */
@@ -13,7 +17,6 @@ import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
 import { monitorInstaClawProvider } from "./connection";
 import { createEnvelope, textToEventSequence } from "./protocol";
 import { DebugLogger } from "./logger";
-import { WS_URL } from "./config";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -85,16 +88,27 @@ function resolveInstaClawAccount(cfg: any, accountId?: string | null): ResolvedI
 const activeConnections = new Map<string, any>();
 
 /**
- * Send text message through WebSocket connection
+ * Send response to server request through WebSocket connection
  * 
- * This function implements the outbound.sendText method, converting text messages
- * to Open Responses event sequences and sending them through the WebSocket connection.
+ * IMPORTANT: This function is used to RESPOND to server requests, not to actively
+ * initiate messages. The plugin acts as a request responder in the Open Responses
+ * protocol - the server sends requests, and the plugin responds with event sequences.
  * 
- * Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5
+ * This function implements the outbound.sendText method by:
+ * 1. Converting response text to Open Responses event sequence (using protocol.ts)
+ * 2. Wrapping each event in a WebSocket Envelope (using protocol.ts)
+ * 3. Sending each envelope through the WebSocket connection
+ * 
+ * Protocol Flow:
+ * - Server sends request → Plugin receives → Plugin generates response events → Plugin sends
+ * - Each response event is independently wrapped in an Envelope and sent
+ * - All protocol operations use unified functions from protocol.ts module
+ * 
+ * Validates: Requirements 2.2, 2.5, 8.1, 8.2, 8.3, 8.4, 8.5
  * 
  * @param cfg - Plugin configuration from OpenClaw
  * @param to - Target identifier (recipient)
- * @param text - Message text content
+ * @param text - Response text content to send
  * @param accountId - Account identifier
  * @throws {Error} If WebSocket is not connected
  */
@@ -106,7 +120,7 @@ async function sendTextMessage(
 ): Promise<void> {
   const account = resolveInstaClawAccount(cfg, accountId);
   const config = account.config;
-  const logger = new DebugLogger(config?.debug ?? false, `[InstaClaw:outbound]`);
+  const logger = new DebugLogger(config?.['debug'] ?? false, `[InstaClaw:outbound]`);
 
   // Validate configuration
   if (!account.enabled) {
@@ -145,38 +159,41 @@ async function sendTextMessage(
     logger.error('Cannot send message', error, {
       accountId: wsKey,
       wsState: ws.readyState,
-      wsStateDescription: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] || 'UNKNOWN',
+      wsStateDescription: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] || 'UNKNOWN', 
     });
     throw error;
   }
   
   try {
-    // Convert text to Open Responses event sequence
+    // Use unified protocol functions from protocol.ts to generate response
+    // This ensures all protocol operations are centralized and consistent
     const events = textToEventSequence(text);
     
-    logger.debug('Generated event sequence', {
+    logger.debug('Generated response event sequence', {
       eventCount: events.length,
+      responseType: 'text',
     });
     
-    // Send each event wrapped in an envelope
+    // Send each event wrapped in an envelope using unified protocol functions
+    // Each event is independently wrapped and sent as per Open Responses protocol
     for (const event of events) {
       const envelope = createEnvelope(event);
       ws.send(envelope);
       
-      logger.debug('Sent event', {
+      logger.debug('Sent response event', {
         type: event.type,
         response_id: event.response_id,
       });
     }
     
-    logger.info('Text message sent successfully', {
+    logger.info('Response sent successfully', {
       to,
       textLength: text.length,
       eventCount: events.length,
     });
   } catch (error) {
     const err = error as Error;
-    logger.error('Failed to send text message', err, {
+    logger.error('Failed to send response', err, {
       to,
       accountId: wsKey,
       textLength: text.length,
@@ -391,7 +408,7 @@ export const instaClawPlugin: ChannelPlugin = {
 
       // --- Write clientId/clientSecret to openclaw config for yintai_tasks_runner skill ---
       const connectorCfg = account.config;
-      const logger = new DebugLogger(connectorCfg?.debug ?? false, `[InstaClaw:startAccount]`);
+      const logger = new DebugLogger(connectorCfg?.['debug'] ?? false, `[InstaClaw:startAccount]`);
 
       if (account.clientId && account.clientSecret) {
         const openclawConfigPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
@@ -454,22 +471,32 @@ export const instaClawPlugin: ChannelPlugin = {
   
   /**
    * Outbound methods
-   * Handles sending messages from OpenClaw to the remote server
+   * Handles sending response messages from OpenClaw to the remote server
+   * 
+   * IMPORTANT: These methods are used to RESPOND to server requests, not to
+   * actively initiate messages. The plugin acts as a request responder.
    */
   outbound: {
     /**
-     * Send text message
+     * Send text response to server request
      * 
-     * This method is called by OpenClaw to send a text message to the remote server.
-     * It converts the text to Open Responses event sequence and sends through WebSocket.
+     * This method is called by OpenClaw to send a text response back to the server.
+     * The plugin acts as a request responder - it receives requests from the server
+     * and sends back Open Responses event sequences as responses.
      * 
-     * Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5
+     * Protocol Flow:
+     * 1. Server sends request to plugin
+     * 2. OpenClaw processes request and generates response text
+     * 3. This method converts response text to Open Responses event sequence
+     * 4. Each event is wrapped in WebSocket Envelope and sent to server
+     * 
+     * Validates: Requirements 2.2, 2.5, 8.1, 8.2, 8.3, 8.4, 8.5
      * 
      * @param cfg - Plugin configuration
      * @param to - Target identifier (recipient)
-     * @param text - Message text content
+     * @param text - Response text content
      * @param accountId - Account identifier
-     * @returns Promise that resolves when message is sent
+     * @returns Promise that resolves when response is sent
      */
     sendText: async (cfg, to, text, accountId) => {
       await sendTextMessage(cfg, to, text, accountId);

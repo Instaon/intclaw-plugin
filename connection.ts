@@ -218,9 +218,9 @@ export class WebSocketConnection {
     this.ws.on('message', (data: WebSocket.Data) => {
       try {
         const message = data.toString();
-        this.logger.debug('Received WebSocket message', {
+        this.logger.info('Received WebSocket message', {
           length: message.length,
-          preview: message.substring(0, 100),
+          data: message,
         });
         this.onMessage(message);
       } catch (error) {
@@ -520,9 +520,9 @@ export class WebSocketConnection {
 
     try {
       this.ws.send(data);
-      this.logger.debug('Sent WebSocket message', {
+      this.logger.info('Sent WebSocket message', {
         length: data.length,
-        preview: data.substring(0, 100),
+        data,
       });
     } catch (error) {
       const err = error as Error;
@@ -657,12 +657,96 @@ export async function monitorInstaClawProvider(
   const activeResponses = new Map<string, Response>();
   
   /**
-   * Handle incoming Open Responses events
-   * Validates: Requirements 9.1-9.7, 16.1-16.6
+   * Handle incoming messages (requests or response events)
+   * 
+   * This function implements the request-response pattern where:
+   * 1. Server sends requests to the plugin
+   * 2. Plugin parses requests and generates response event sequences
+   * 3. Plugin also handles incoming response events (for monitoring)
+   * 
+   * Validates: Requirements 2.1, 2.2, 2.5, 9.1-9.7, 16.1-16.6
    */
   async function handleMessage(rawMessage: string): Promise<void> {
     try {
-      // Parse envelope and extract event
+      // First, try to identify if this is a server request
+      // Server requests have type "request" in the envelope
+      let isRequest = false;
+      try {
+        const envelope = JSON.parse(rawMessage);
+        if (envelope.type === 'request') {
+          isRequest = true;
+        }
+      } catch {
+        // If parsing fails, continue to try parseEnvelope
+      }
+      
+      // Handle server requests (plugin acts as responder)
+      if (isRequest) {
+        logger.debug('Received server request');
+        
+        // Import request handling functions
+        const { parseRequest, generateResponseSequence, createEnvelope } = await import('./protocol.js');
+        
+        // Parse the request
+        const request = parseRequest(rawMessage);
+        
+        logger.info('Parsed server request', {
+          type: request.type,
+          userId: request.userId,
+          requestId: request.requestId,
+          contentLength: request.content.length,
+        });
+        
+        // Generate response content
+        // For now, echo the request content back
+        // In a real implementation, this would call an AI model or other service
+        const responseText = `Echo: ${request.content}`;
+        
+        logger.debug('Generated response text', {
+          requestId: request.requestId,
+          responseLength: responseText.length,
+        });
+        
+        // Generate response event sequence
+        const responseEvents = generateResponseSequence(request, responseText);
+        
+        logger.info('Generated response event sequence', {
+          requestId: request.requestId,
+          eventCount: responseEvents.length,
+          responseId: responseEvents[0]?.response_id,
+        });
+        
+        // Send each response event wrapped in envelope
+        for (const event of responseEvents) {
+          const envelopeStr = createEnvelope(event);
+          
+          // Send through WebSocket connection
+          if (connection.isConnected()) {
+            connection.send(envelopeStr);
+            
+            logger.debug('Sent response event', {
+              type: event.type,
+              response_id: event.response_id,
+              event_id: event.event_id,
+            });
+          } else {
+            logger.warn('Cannot send response event: connection not open', {
+              type: event.type,
+              response_id: event.response_id,
+              connectionState: connection.getState(),
+            });
+          }
+        }
+        
+        logger.info('Completed request-response cycle', {
+          requestId: request.requestId,
+          eventsSent: responseEvents.length,
+        });
+        
+        return;
+      }
+      
+      // Handle incoming Open Responses events (existing logic)
       const event = parseEnvelope(rawMessage);
       
       logger.debug('Received Open Responses event', {

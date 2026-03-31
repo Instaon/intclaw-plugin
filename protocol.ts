@@ -5,7 +5,72 @@
  * It provides functions for parsing and creating WebSocket Envelope messages,
  * generating Open Responses events, and converting text to event sequences.
  * 
- * Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 10.2, 8.3
+ * ## Protocol Flow Overview
+ * 
+ * The InstaClaw Connector plugin acts as a **request responder** (not an active sender).
+ * The correct interaction pattern follows the request-response model:
+ * 
+ * ### Request-Response Flow:
+ * 
+ * 1. **Server sends request** → Plugin receives WebSocket Envelope containing request
+ *    - Envelope format: { type: "request", headers: {...}, data: JSON.stringify(requestContent) }
+ *    - Request content: { type: "user.message", content: "...", userId: "..." }
+ * 
+ * 2. **Plugin parses request** → Extract and validate request content
+ *    - Use parseRequest() to extract request from Envelope
+ *    - Validate request structure and extract user message
+ * 
+ * 3. **Plugin generates response** → Create Open Responses event sequence
+ *    - Use generateResponseSequence() to create event sequence
+ *    - Event sequence: response.in_progress → response.output_item.added → 
+ *                      response.output_text.delta (multiple) → response.completed
+ * 
+ * 4. **Plugin sends response** → Wrap each event in Envelope and send via WebSocket
+ *    - Use createEnvelope() to wrap each event
+ *    - Each event is sent independently in its own Envelope
+ *    - Envelope.data MUST be a JSON string (JSON.stringify(event))
+ * 
+ * ### Key Principles:
+ * 
+ * - **Plugin Role**: The plugin is a request responder, not an active sender
+ * - **Message Direction**: Server → Plugin (request), Plugin → Server (response events)
+ * - **Envelope Format**: All messages wrapped in WebSocket Envelope with JSON string data field
+ * - **Event Sequence**: Each response generates a complete Open Responses event sequence
+ * - **Unified Module**: All protocol logic centralized in this module for consistency
+ * 
+ * ### WebSocket Envelope Format:
+ * 
+ * ```typescript
+ * {
+ *   type: "message" | "control" | "request",
+ *   headers: {
+ *     messageId: string,      // Unique message identifier
+ *     timestamp: number,      // Unix timestamp in milliseconds
+ *     requestId?: string,     // Optional request identifier
+ *     [key: string]: any      // Additional headers
+ *   },
+ *   data: string              // MUST be JSON string (JSON.stringify)
+ * }
+ * ```
+ * 
+ * ### Open Responses Event Sequence:
+ * 
+ * ```typescript
+ * // 1. Response starts
+ * { type: "response.in_progress", event_id: "...", response_id: "..." }
+ * 
+ * // 2. Output item added
+ * { type: "response.output_item.added", event_id: "...", response_id: "...", item: {...} }
+ * 
+ * // 3. Text streaming (multiple events)
+ * { type: "response.output_text.delta", event_id: "...", response_id: "...", 
+ *   item_id: "...", content_index: 0, delta: { text: "..." } }
+ * 
+ * // 4. Response completes
+ * { type: "response.completed", event_id: "...", response_id: "..." }
+ * ```
+ * 
+ * Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 10.2, 8.3, 2.1, 2.2, 2.3, 2.4, 2.5
  */
 
 import { randomUUID } from 'crypto';
@@ -17,6 +82,7 @@ import type {
   OutputTextDeltaEvent,
   ResponseCompletedEvent,
   Item,
+  RequestContent,
 } from './types';
 import { TEXT_CHUNK_SIZE } from './config';
 
@@ -258,6 +324,126 @@ export function textToEventSequence(text: string, responseId?: string): OpenResp
   }
   
   events.push(createCompletedEvent(respId));
+  
+  return events;
+}
+
+// ============================================================================
+// Request Parsing Functions (Task 3.1)
+// ============================================================================
+
+/**
+ * Parse a server request from WebSocket Envelope
+ * 
+ * This function extracts and validates a request message sent from the server.
+ * The server sends requests to the plugin, and the plugin responds with
+ * Open Responses event sequences.
+ * 
+ * Validates: Requirements 2.1, 2.4
+ * 
+ * @param rawMessage - Raw JSON string from WebSocket containing request
+ * @returns Parsed request content
+ * @throws {Error} If parsing fails or request format is invalid
+ */
+export function parseRequest(rawMessage: string): RequestContent {
+  try {
+    // Parse outer envelope
+    const envelope = JSON.parse(rawMessage) as WebSocketEnvelope;
+    
+    // Validate envelope structure
+    if (!envelope.type || typeof envelope.type !== 'string') {
+      throw new Error('Invalid request envelope: missing or invalid type field');
+    }
+    
+    if (!envelope.data || typeof envelope.data !== 'string') {
+      throw new Error('Invalid request envelope: missing or invalid data field');
+    }
+    
+    if (!envelope.headers || typeof envelope.headers !== 'object') {
+      throw new Error('Invalid request envelope: missing or invalid headers field');
+    }
+    
+    // Parse request content from data field
+    const requestData = JSON.parse(envelope.data);
+    
+    // Validate request content structure
+    if (!requestData.type || typeof requestData.type !== 'string') {
+      throw new Error('Invalid request content: missing or invalid type field');
+    }
+    
+    if (!requestData.content || typeof requestData.content !== 'string') {
+      throw new Error('Invalid request content: missing or invalid content field');
+    }
+    
+    if (!requestData.userId || typeof requestData.userId !== 'string') {
+      throw new Error('Invalid request content: missing or invalid userId field');
+    }
+    
+    // Extract request ID from headers if available
+    const requestId = envelope.headers['requestId'] || envelope.headers.messageId;
+    
+    return {
+      type: requestData.type,
+      content: requestData.content,
+      userId: requestData.userId,
+      requestId,
+    };
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      const preview = rawMessage.substring(0, 100);
+      throw new Error(`Failed to parse request: ${error.message}. Raw: ${preview}`);
+    }
+    throw error;
+  }
+}
+
+// ============================================================================
+// Response Generation Functions (Task 3.1)
+// ============================================================================
+
+/**
+ * Generate Open Responses event sequence from request
+ * 
+ * This function creates a complete Open Responses event sequence in response
+ * to a server request. The sequence includes:
+ * 1. response.in_progress - Indicates response has started
+ * 2. response.output_item.added - Adds a message item
+ * 3. response.output_text.delta (multiple) - Streams response text in chunks
+ * 4. response.completed - Indicates response is complete
+ * 
+ * This is the primary function for generating responses as a request responder.
+ * 
+ * Validates: Requirements 2.2, 2.3, 2.5
+ * 
+ * @param request - Parsed request content from server
+ * @param responseText - Text content to send as response
+ * @returns Array of Open Responses events forming complete response sequence
+ */
+export function generateResponseSequence(
+  request: RequestContent,
+  responseText: string
+): OpenResponsesEvent[] {
+  // Generate unique identifiers for this response
+  const responseId = `resp_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  const itemId = `item_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  
+  // Build event sequence
+  const events: OpenResponsesEvent[] = [
+    // 1. Signal response has started
+    createInProgressEvent(responseId),
+    
+    // 2. Add output item (message container)
+    createOutputItemAddedEvent(responseId, itemId),
+  ];
+  
+  // 3. Stream response text in chunks
+  for (let i = 0; i < responseText.length; i += TEXT_CHUNK_SIZE) {
+    const chunk = responseText.substring(i, i + TEXT_CHUNK_SIZE);
+    events.push(createOutputTextDeltaEvent(responseId, itemId, 0, chunk));
+  }
+  
+  // 4. Signal response is complete
+  events.push(createCompletedEvent(responseId));
   
   return events;
 }

@@ -1,0 +1,112 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - 插件作为被请求端正确处理请求-响应流程
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate the bug exists
+  - **Scoped PBT Approach**: 针对确定性 bug，将属性范围限定为具体的失败案例以确保可重现性
+  - Test implementation details from Bug Condition in design:
+    - 验证插件能否识别服务器发来的请求消息（而不是将其误认为响应事件）
+    - 验证插件是否将自己定位为被请求端而不是主动发送方
+    - 验证完整的请求-响应流程是否正确实现
+    - 验证所有发送的消息的 data 字段都是 JSON 字符串
+  - The test assertions should match the Expected Behavior Properties from design:
+    - 插件 SHALL 作为被请求端接收请求并解析 WebSocket Envelope
+    - 插件 SHALL 生成 Open Responses 事件序列作为响应
+    - 系统 SHALL 确保 data 字段是 JSON 字符串格式
+    - 系统 SHALL 使用统一的协议解析模块
+    - 每个事件 SHALL 独立封装在 WebSocket Envelope 中发送
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bug exists)
+  - Document counterexamples found to understand root cause:
+    - 插件无法识别服务器发来的请求消息
+    - 插件主动生成事件序列而不是响应请求
+    - 缺少请求解析逻辑、角色定位错误、协议流程不清晰
+  - Mark task complete when test is written, run, and failure is documented
+  - _Requirements: 1.1, 1.2, 1.3, 1.4_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - 现有协议解析和连接管理功能保持不变
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for non-buggy inputs:
+    - WebSocket 连接建立时使用正确的认证头（x-app-key, x-app-secret）
+    - 心跳机制（ping/pong）正常运行
+    - 重连逻辑（指数退避）正常工作
+    - parseEnvelope 函数解析有效消息
+    - 事件 ID 和响应 ID 的生成保持唯一性
+    - response.output_text.delta 事件的文本累积逻辑
+    - response.completed 事件的响应完成处理
+  - Write property-based tests capturing observed behavior patterns from Preservation Requirements:
+    - 连接管理保留：连接建立、断开、重连行为
+    - 心跳机制保留：ping/pong 机制
+    - 事件解析保留：parseEnvelope 正确解析有效消息
+    - 状态管理保留：响应状态管理
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+
+- [x] 3. Fix for WebSocket 协议方向理解和消息封装格式问题
+
+  - [x] 3.1 增强 protocol.ts 模块
+    - 保持现有函数：parseEnvelope、createEnvelope、textToEventSequence 等函数已经正确实现，保持不变
+    - 新增请求解析函数：添加 parseRequest 函数来解析服务器发来的请求消息
+    - 新增响应生成函数：添加 generateResponseSequence 函数来生成响应事件序列
+    - 文档化协议流程：在 protocol.ts 顶部添加详细的协议流程说明
+    - _Bug_Condition: isBugCondition(codeState) where codeState.pluginRole == "active_sender" OR codeState.protocolLogic == "scattered"_
+    - _Expected_Behavior: 插件作为被请求端，使用统一的协议解析模块处理请求-响应流程_
+    - _Preservation: 现有的 parseEnvelope、createEnvelope、textToEventSequence 函数保持不变_
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+
+  - [x] 3.2 重构 connection.ts 消息处理逻辑
+    - 重构 handleMessage：修改消息处理逻辑以支持请求-响应模式
+    - 识别服务器发来的请求消息
+    - 调用 protocol.ts 中的 parseRequest 解析请求
+    - 生成响应内容（可能需要调用 AI 模型或其他服务）
+    - 调用 protocol.ts 中的 generateResponseSequence 生成响应事件
+    - 通过 WebSocket 发送响应事件序列
+    - 保持事件处理逻辑：现有的 Open Responses 事件处理逻辑保持不变
+    - _Bug_Condition: isBugCondition(codeState) where codeState.messageFlow NOT follows_request_response_pattern_
+    - _Expected_Behavior: 正确处理服务器请求并生成响应事件序列_
+    - _Preservation: 现有的事件处理逻辑（response.in_progress、response.output_item.added 等）保持不变_
+    - _Requirements: 2.1, 2.2, 2.5_
+
+  - [x] 3.3 优化 channel.ts 发送逻辑
+    - 明确函数用途：重命名或添加注释说明 sendTextMessage 用于响应服务器请求
+    - 简化调用链：直接使用 protocol.ts 中的统一函数
+    - 保持 WebSocket 发送逻辑：实际的 WebSocket 发送操作保持不变
+    - _Bug_Condition: isBugCondition(codeState) where codeState.pluginRole == "active_sender"_
+    - _Expected_Behavior: 明确插件作为被请求端的角色，响应服务器请求_
+    - _Preservation: WebSocket 发送逻辑、连接管理、日志记录保持不变_
+    - _Requirements: 2.2, 2.5_
+
+  - [x] 3.4 更新 types.ts 类型定义
+    - 新增请求类型：添加 Request 相关的类型定义（RequestEnvelope、RequestContent、ResponseContext）
+    - 保持现有类型：所有现有的类型定义保持不变
+    - _Bug_Condition: isBugCondition(codeState) where codeState lacks request type definitions_
+    - _Expected_Behavior: 提供完整的请求-响应类型定义_
+    - _Preservation: 现有的 WebSocketEnvelope、OpenResponsesEvent、Response、Item、ContentPart 类型保持不变_
+    - _Requirements: 2.1, 2.4_
+
+  - [x] 3.5 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - 插件作为被请求端正确处理请求-响应流程
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed)
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+
+  - [x] 3.6 Verify preservation tests still pass
+    - **Property 2: Preservation** - 现有协议解析和连接管理功能保持不变
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm all tests still pass after fix (no regressions)
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+
+- [x] 4. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
