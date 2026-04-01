@@ -1,21 +1,30 @@
 /**
  * Unit Tests for Protocol Handler
- * 
+ *
  * Tests the core functionality of the protocol module including
  * message parsing, envelope creation, event generation, and text-to-event conversion.
- * 
+ *
+ * All test fixtures strictly follow open-responses.md:
+ *  - Envelope.type  = "MESSAGE"  (uppercase)
+ *  - Envelope.headers = { messageId, topic }  (no timestamp, no event_id)
+ *  - Envelope.data  = JSON.stringify(event)
+ *  - Events carry: type, response_id, timestamp — no extra event_id field
+ *
  * Validates: Task 4.1, 4.2, 4.3, 4.4
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   parseEnvelope,
+  parseRequest,
   createEnvelope,
   createInProgressEvent,
   createOutputItemAddedEvent,
   createOutputTextDeltaEvent,
   createCompletedEvent,
   textToEventSequence,
+  TOPIC_BOT_MESSAGES,
+  TOPIC_USER_MESSAGES,
 } from '../protocol.js';
 import type {
   ResponseInProgressEvent,
@@ -24,118 +33,183 @@ import type {
   ResponseCompletedEvent,
 } from '../types.js';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeEnvelope(data: object, topic = TOPIC_BOT_MESSAGES, messageId = 'msg_001') {
+  return JSON.stringify({
+    type: 'MESSAGE',
+    headers: { messageId, topic },
+    data: JSON.stringify(data),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('Protocol Module', () => {
-  describe('Envelope Parsing (Task 4.1)', () => {
-    it('should parse valid WebSocket Envelope and extract event', () => {
-      const raw = JSON.stringify({
-        type: 'message',
-        headers: { messageId: 'msg_001', timestamp: Date.now() },
-        data: JSON.stringify({
-          type: 'response.in_progress',
-          event_id: 'evt_123',
-          response_id: 'resp_456',
-        }),
+  // ───────────────────────────────────────────────────────────────────────────
+  // Envelope Parsing — Open Responses events (Task 4.1)
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('Envelope Parsing — parseEnvelope (Task 4.1)', () => {
+    it('should parse valid envelope and extract event', () => {
+      const raw = makeEnvelope({
+        type: 'response.in_progress',
+        response_id: 'resp_456',
+        status: 'in_progress',
+        timestamp: '2026-03-31T10:00:00Z',
       });
 
       const event = parseEnvelope(raw);
 
       expect(event.type).toBe('response.in_progress');
-      expect(event.event_id).toBe('evt_123');
       expect(event.response_id).toBe('resp_456');
     });
 
-    it('should throw error for missing type field in envelope', () => {
+    it('should throw error for wrong envelope type (not "MESSAGE")', () => {
       const raw = JSON.stringify({
-        headers: {},
-        data: '{}',
+        type: 'message',           // lowercase — invalid per spec
+        headers: { messageId: 'x', topic: TOPIC_BOT_MESSAGES },
+        data: JSON.stringify({ type: 'response.in_progress', response_id: 'r' }),
       });
 
-      expect(() => parseEnvelope(raw)).toThrow('Invalid envelope: missing or invalid type field');
+      expect(() => parseEnvelope(raw)).toThrow('"MESSAGE"');
     });
 
-    it('should throw error for missing data field in envelope', () => {
+    it('should throw error for missing data field', () => {
       const raw = JSON.stringify({
-        type: 'message',
-        headers: {},
+        type: 'MESSAGE',
+        headers: { messageId: 'x', topic: TOPIC_BOT_MESSAGES },
       });
 
-      expect(() => parseEnvelope(raw)).toThrow('Invalid envelope: missing or invalid data field');
+      expect(() => parseEnvelope(raw)).toThrow('data');
     });
 
-    it('should throw error for missing headers field in envelope', () => {
+    it('should throw error for missing headers field', () => {
       const raw = JSON.stringify({
-        type: 'message',
-        data: '{}',
+        type: 'MESSAGE',
+        data: JSON.stringify({ type: 'response.in_progress', response_id: 'r' }),
       });
 
-      expect(() => parseEnvelope(raw)).toThrow('Invalid envelope: missing or invalid headers field');
+      expect(() => parseEnvelope(raw)).toThrow('headers');
     });
 
     it('should throw error for missing type field in event', () => {
-      const raw = JSON.stringify({
-        type: 'message',
-        headers: {},
-        data: JSON.stringify({
-          event_id: 'evt_123',
-          response_id: 'resp_456',
-        }),
-      });
+      const raw = makeEnvelope({ response_id: 'resp_456' });
 
       expect(() => parseEnvelope(raw)).toThrow('Invalid event: missing or invalid type field');
     });
 
-    it('should parse event without event_id field (per Open Responses spec)', () => {
-      const raw = JSON.stringify({
-        type: 'message',
-        headers: {},
-        data: JSON.stringify({
-          type: 'response.in_progress',
-          response_id: 'resp_456',
-        }),
-      });
+    it('should throw error for missing response_id in event', () => {
+      const raw = makeEnvelope({ type: 'response.in_progress' });
 
-      const event = parseEnvelope(raw);
-
-      expect(event.type).toBe('response.in_progress');
-      expect(event.event_id).toBeUndefined();
-      expect(event.response_id).toBe('resp_456');
+      expect(() => parseEnvelope(raw)).toThrow('Invalid event: missing or invalid response_id field');
     });
 
     it('should throw descriptive error for invalid JSON', () => {
-      const raw = 'not valid json';
-
-      expect(() => parseEnvelope(raw)).toThrow('Failed to parse envelope');
+      expect(() => parseEnvelope('not valid json')).toThrow('Failed to parse envelope');
     });
   });
 
-  describe('Envelope Creation (Task 4.2)', () => {
-    it('should create WebSocket Envelope from event', () => {
+  // ───────────────────────────────────────────────────────────────────────────
+  // Request Parsing — inbound user messages (Task 4.1 / §9.1)
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('Request Parsing — parseRequest (§9.1)', () => {
+    it('should parse valid user message envelope', () => {
+      const raw = JSON.stringify({
+        type: 'MESSAGE',
+        headers: { messageId: 'msg_req_001', topic: TOPIC_USER_MESSAGES },
+        data: JSON.stringify({ content: '你好呀' }),
+      });
+
+      const req = parseRequest(raw);
+
+      expect(req.content).toBe('你好呀');
+      expect(req.messageId).toBe('msg_req_001');
+      expect(req.topic).toBe(TOPIC_USER_MESSAGES);
+    });
+
+    it('should throw error for wrong envelope type', () => {
+      const raw = JSON.stringify({
+        type: 'message',
+        headers: { messageId: 'x', topic: TOPIC_USER_MESSAGES },
+        data: JSON.stringify({ content: 'hi' }),
+      });
+
+      expect(() => parseRequest(raw)).toThrow('"MESSAGE"');
+    });
+
+    it('should throw error for missing content in data', () => {
+      const raw = JSON.stringify({
+        type: 'MESSAGE',
+        headers: { messageId: 'x', topic: TOPIC_USER_MESSAGES },
+        data: JSON.stringify({ foo: 'bar' }),
+      });
+
+      expect(() => parseRequest(raw)).toThrow('content');
+    });
+
+    it('should throw error for missing messageId in headers', () => {
+      const raw = JSON.stringify({
+        type: 'MESSAGE',
+        headers: { topic: TOPIC_USER_MESSAGES },
+        data: JSON.stringify({ content: 'hi' }),
+      });
+
+      expect(() => parseRequest(raw)).toThrow('messageId');
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Envelope Creation (Task 4.2)
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('Envelope Creation — createEnvelope (Task 4.2)', () => {
+    it('should create envelope with correct structure per open-responses.md §7', () => {
       const event: ResponseInProgressEvent = {
         type: 'response.in_progress',
-        event_id: 'evt_123',
         response_id: 'resp_456',
+        status: 'in_progress',
+        timestamp: '2026-03-31T10:00:00Z',
       };
 
       const envelopeStr = createEnvelope(event);
       const envelope = JSON.parse(envelopeStr);
 
-      expect(envelope.type).toBe('message');
+      // Per spec: type is uppercase "MESSAGE"
+      expect(envelope.type).toBe('MESSAGE');
+      // Per spec: headers has messageId and topic only (no timestamp)
       expect(envelope.headers).toBeDefined();
       expect(envelope.headers.messageId).toMatch(/^msg_\d+_[a-z0-9]+$/);
-      expect(envelope.headers.timestamp).toBeTypeOf('number');
-      expect(envelope.data).toBeDefined();
+      expect(envelope.headers.topic).toBe(TOPIC_BOT_MESSAGES);
+      expect(envelope.headers.timestamp).toBeUndefined();
+      // Per spec: data is a JSON string
+      expect(typeof envelope.data).toBe('string');
 
       const parsedEvent = JSON.parse(envelope.data);
       expect(parsedEvent.type).toBe('response.in_progress');
-      expect(parsedEvent.event_id).toBe('evt_123');
       expect(parsedEvent.response_id).toBe('resp_456');
+    });
+
+    it('should allow custom topic override', () => {
+      const event: ResponseInProgressEvent = {
+        type: 'response.in_progress',
+        response_id: 'resp_456',
+        status: 'in_progress',
+        timestamp: '2026-03-31T10:00:00Z',
+      };
+
+      const envelopeStr = createEnvelope(event, TOPIC_USER_MESSAGES);
+      const envelope = JSON.parse(envelopeStr);
+
+      expect(envelope.headers.topic).toBe(TOPIC_USER_MESSAGES);
     });
 
     it('should generate unique message IDs', () => {
       const event: ResponseInProgressEvent = {
         type: 'response.in_progress',
-        event_id: 'evt_123',
         response_id: 'resp_456',
+        status: 'in_progress',
+        timestamp: new Date().toISOString(),
       };
 
       const envelope1 = JSON.parse(createEnvelope(event));
@@ -144,14 +218,14 @@ describe('Protocol Module', () => {
       expect(envelope1.headers.messageId).not.toBe(envelope2.headers.messageId);
     });
 
-    it('should preserve all event fields in envelope data', () => {
+    it('should preserve all event fields in envelope.data', () => {
       const event: OutputTextDeltaEvent = {
         type: 'response.output_text.delta',
-        event_id: 'evt_789',
         response_id: 'resp_456',
         item_id: 'item_123',
         content_index: 0,
         delta: { text: 'Hello' },
+        timestamp: new Date().toISOString(),
       };
 
       const envelopeStr = createEnvelope(event);
@@ -159,7 +233,6 @@ describe('Protocol Module', () => {
       const parsedEvent = JSON.parse(envelope.data);
 
       expect(parsedEvent.type).toBe('response.output_text.delta');
-      expect(parsedEvent.event_id).toBe('evt_789');
       expect(parsedEvent.response_id).toBe('resp_456');
       expect(parsedEvent.item_id).toBe('item_123');
       expect(parsedEvent.content_index).toBe(0);
@@ -167,13 +240,17 @@ describe('Protocol Module', () => {
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Event Creation Helpers (Task 4.3)
+  // ───────────────────────────────────────────────────────────────────────────
   describe('Event Creation Helpers (Task 4.3)', () => {
-    it('should create response.in_progress event', () => {
+    it('should create response.in_progress event with required fields', () => {
       const event = createInProgressEvent('resp_123');
 
       expect(event.type).toBe('response.in_progress');
       expect(event.response_id).toBe('resp_123');
-      expect(event.event_id).toMatch(/^evt_\d+_[a-z0-9]+$/);
+      expect(event.status).toBe('in_progress');
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
     it('should create response.output_item.added event', () => {
@@ -181,11 +258,13 @@ describe('Protocol Module', () => {
 
       expect(event.type).toBe('response.output_item.added');
       expect(event.response_id).toBe('resp_123');
-      expect(event.event_id).toMatch(/^evt_\d+_[a-z0-9]+$/);
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(event.item.id).toBe('item_456');
       expect(event.item.type).toBe('message');
+      expect(event.item.role).toBe('assistant');
+      expect(event.item.status).toBe('in_progress');
       expect(event.item.content).toHaveLength(1);
-      expect(event.item.content[0]?.type).toBe('text');
+      expect(event.item.content[0]?.type).toBe('output_text');
       expect(event.item.content[0]?.text).toBe('');
     });
 
@@ -197,7 +276,7 @@ describe('Protocol Module', () => {
       expect(event.item_id).toBe('item_456');
       expect(event.content_index).toBe(0);
       expect(event.delta.text).toBe('Hello');
-      expect(event.event_id).toMatch(/^evt_\d+_[a-z0-9]+$/);
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
     it('should create response.completed event', () => {
@@ -205,35 +284,27 @@ describe('Protocol Module', () => {
 
       expect(event.type).toBe('response.completed');
       expect(event.response_id).toBe('resp_123');
-      expect(event.event_id).toMatch(/^evt_\d+_[a-z0-9]+$/);
-    });
-
-    it('should generate unique event IDs', () => {
-      const event1 = createInProgressEvent('resp_123');
-      const event2 = createInProgressEvent('resp_123');
-
-      expect(event1.event_id).not.toBe(event2.event_id);
+      expect(event.status).toBe('completed');
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Text to Event Sequence (Task 4.4)
+  // ───────────────────────────────────────────────────────────────────────────
   describe('Text to Event Sequence (Task 4.4)', () => {
     it('should convert short text to event sequence', () => {
       const text = 'Hello, world!';
       const events = textToEventSequence(text);
 
-      // Should have: in_progress, item_added, delta(s), completed
+      // Should have: in_progress, item_added, delta(s), content_part.done, completed
       expect(events.length).toBeGreaterThanOrEqual(4);
 
-      // First event should be in_progress
       expect(events[0]?.type).toBe('response.in_progress');
-
-      // Second event should be output_item.added
       expect(events[1]?.type).toBe('response.output_item.added');
-
-      // Last event should be completed
       expect(events[events.length - 1]?.type).toBe('response.completed');
 
-      // All events should have the same response_id
+      // All events share the same response_id
       const responseId = events[0]?.response_id;
       for (const event of events) {
         expect(event.response_id).toBe(responseId);
@@ -241,46 +312,38 @@ describe('Protocol Module', () => {
     });
 
     it('should split long text into multiple delta events', () => {
-      const longText = 'a'.repeat(200); // 200 characters
+      const longText = 'a'.repeat(200);
       const events = textToEventSequence(longText);
 
-      // Count delta events
       const deltaEvents = events.filter(e => e.type === 'response.output_text.delta');
 
-      // With TEXT_CHUNK_SIZE of 50, should have 4 delta events (200 / 50 = 4)
+      // With TEXT_CHUNK_SIZE of 50, 200 chars → 4 deltas
       expect(deltaEvents.length).toBe(4);
 
-      // Verify each delta has correct structure
       for (const event of deltaEvents) {
-        expect(event.type).toBe('response.output_text.delta');
         expect((event as OutputTextDeltaEvent).delta.text.length).toBeLessThanOrEqual(50);
       }
     });
 
     it('should use provided response ID', () => {
-      const text = 'Test';
-      const customResponseId = 'custom_resp_123';
-      const events = textToEventSequence(text, customResponseId);
+      const events = textToEventSequence('Test', 'custom_resp_123');
 
       for (const event of events) {
-        expect(event.response_id).toBe(customResponseId);
+        expect(event.response_id).toBe('custom_resp_123');
       }
     });
 
-    it('should generate response ID if not provided', () => {
-      const text = 'Test';
-      const events = textToEventSequence(text);
-
+    it('should generate response ID matching resp_ pattern when not provided', () => {
+      const events = textToEventSequence('Test');
       const responseId = events[0]?.response_id;
+
       expect(responseId).toBeDefined();
-      expect(responseId).toMatch(/^resp_\d+$/);
+      expect(responseId).toMatch(/^resp_/);
     });
 
     it('should handle empty text', () => {
-      const text = '';
-      const events = textToEventSequence(text);
+      const events = textToEventSequence('');
 
-      // Should still have the basic structure
       expect(events.length).toBeGreaterThanOrEqual(3);
       expect(events[0]?.type).toBe('response.in_progress');
       expect(events[1]?.type).toBe('response.output_item.added');
@@ -298,37 +361,39 @@ describe('Protocol Module', () => {
     });
   });
 
-  describe('Round-trip Property (Validates Requirement 11.7)', () => {
-    it('should preserve event through createEnvelope -> parseEnvelope cycle', () => {
+  // ───────────────────────────────────────────────────────────────────────────
+  // Round-trip Property (Validates Requirement 11.7)
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('Round-trip Property', () => {
+    it('should preserve event through createEnvelope → parseEnvelope cycle', () => {
       const originalEvent: ResponseInProgressEvent = {
         type: 'response.in_progress',
-        event_id: 'evt_123',
         response_id: 'resp_456',
+        status: 'in_progress',
+        timestamp: '2026-03-31T10:00:00Z',
       };
 
       const envelopeStr = createEnvelope(originalEvent);
       const parsedEvent = parseEnvelope(envelopeStr);
 
       expect(parsedEvent.type).toBe(originalEvent.type);
-      expect(parsedEvent.event_id).toBe(originalEvent.event_id);
       expect(parsedEvent.response_id).toBe(originalEvent.response_id);
     });
 
     it('should preserve complex event through round-trip', () => {
       const originalEvent: OutputTextDeltaEvent = {
         type: 'response.output_text.delta',
-        event_id: 'evt_789',
         response_id: 'resp_456',
         item_id: 'item_123',
         content_index: 2,
         delta: { text: 'Hello, world!' },
+        timestamp: '2026-03-31T10:00:02Z',
       };
 
       const envelopeStr = createEnvelope(originalEvent);
       const parsedEvent = parseEnvelope(envelopeStr) as OutputTextDeltaEvent;
 
       expect(parsedEvent.type).toBe(originalEvent.type);
-      expect(parsedEvent.event_id).toBe(originalEvent.event_id);
       expect(parsedEvent.response_id).toBe(originalEvent.response_id);
       expect(parsedEvent.item_id).toBe(originalEvent.item_id);
       expect(parsedEvent.content_index).toBe(originalEvent.content_index);

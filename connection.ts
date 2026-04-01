@@ -657,73 +657,73 @@ export async function monitorInstaClawProvider(
   const activeResponses = new Map<string, Response>();
   
   /**
-   * Handle incoming messages (requests or response events)
-   * 
-   * This function implements the request-response pattern where:
-   * 1. Server sends requests to the plugin
-   * 2. Plugin parses requests and generates response event sequences
-   * 3. Plugin also handles incoming response events (for monitoring)
-   * 
+   * Handle incoming messages.
+   *
+   * Per open-responses.md §9, all frames share the same Envelope shape:
+   *   { type: "MESSAGE", headers: { messageId, topic }, data: "<json string>" }
+   *
+   * Routing is determined by headers.topic:
+   *   - "/v1.0/im/user/messages"  → inbound user message; plugin responds with event sequence
+   *   - "/v1.0/im/bot/messages"   → inbound Open Responses event (server relay / monitoring)
+   *
    * Validates: Requirements 2.1, 2.2, 2.5, 9.1-9.7, 16.1-16.6
    */
   async function handleMessage(rawMessage: string): Promise<void> {
     try {
-      // First, try to identify if this is a server request
-      // Server requests have type "request" in the envelope
-      let isRequest = false;
+      // Import protocol helpers
+      const {
+        parseRequest,
+        parseEnvelope,
+        generateResponseSequence,
+        createEnvelope,
+        TOPIC_USER_MESSAGES,
+      } = await import('./protocol.js');
+
+      // Peek at the Envelope to read the topic for routing
+      let topic: string | undefined;
       try {
-        const envelope = JSON.parse(rawMessage);
-        if (envelope.type === 'request') {
-          isRequest = true;
-        }
+        const peek = JSON.parse(rawMessage);
+        topic = peek?.headers?.topic;
       } catch {
-        // If parsing fails, continue to try parseEnvelope
+        // malformed JSON — fall through to error handling below
       }
-      
-      // Handle server requests (plugin acts as responder)
-      if (isRequest) {
-        logger.debug('Received server request');
-        
-        // Import request handling functions
-        const { parseRequest, generateResponseSequence, createEnvelope } = await import('./protocol.js');
-        
-        // Parse the request
+
+      // ── Inbound user message (plugin acts as responder) ──────────────
+      if (topic === TOPIC_USER_MESSAGES) {
+        logger.debug('Received user message (topic: user/messages)');
+
         const request = parseRequest(rawMessage);
-        
-        logger.info('Parsed server request', {
-          type: request.type,
-          userId: request.userId,
-          requestId: request.requestId,
+
+        logger.info('Parsed user request', {
+          messageId: request.messageId,
+          topic: request.topic,
           contentLength: request.content.length,
         });
-        
-        // Generate response content
-        // For now, echo the request content back
-        // In a real implementation, this would call an AI model or other service
+
+        // Generate response content.
+        // Echo for now; replace with AI / service call in production.
         const responseText = `Echo: ${request.content}`;
-        
+
         logger.debug('Generated response text', {
-          requestId: request.requestId,
+          messageId: request.messageId,
           responseLength: responseText.length,
         });
-        
-        // Generate response event sequence
+
+        // Convert text → Open Responses event sequence
         const responseEvents = generateResponseSequence(request, responseText);
-        
+
         logger.info('Generated response event sequence', {
-          requestId: request.requestId,
+          messageId: request.messageId,
           eventCount: responseEvents.length,
           responseId: responseEvents[0]?.response_id,
         });
-        
-        // Send each response event wrapped in envelope
+
+        // Send each event wrapped in an Envelope targeting bot/messages topic
         for (const event of responseEvents) {
-          const envelopeStr = createEnvelope(event);
-          
-          // Send through WebSocket connection
+          const envelopeStr = createEnvelope(event); // defaults to TOPIC_BOT_MESSAGES
+
           if (connection.isConnected()) {
             connection.send(envelopeStr);
-            
             logger.debug('Sent response event', {
               type: event.type,
               response_id: event.response_id,
@@ -736,12 +736,12 @@ export async function monitorInstaClawProvider(
             });
           }
         }
-        
+
         logger.info('Completed request-response cycle', {
-          requestId: request.requestId,
+          messageId: request.messageId,
           eventsSent: responseEvents.length,
         });
-        
+
         return;
       }
       

@@ -4,7 +4,12 @@
  * Implements the Open Responses protocol for the InstaClaw Connector.
  * All event structures strictly follow open-responses.md.
  *
- * Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 10.2, 8.3, 2.1, 2.2, 2.3, 2.4, 2.5
+ * Key rules (from open-responses.md §7):
+ *  - Envelope.type = "MESSAGE" (uppercase)
+ *  - Envelope.headers = { messageId, topic }  (no timestamp in headers)
+ *  - Envelope.data = JSON.stringify(event)     (stringified, not a nested object)
+ *  - Bot → Server topic: "/v1.0/im/bot/messages"
+ *  - User → Bot topic:   "/v1.0/im/user/messages"
  */
 
 import type {
@@ -17,8 +22,16 @@ import type {
   ResponseCompletedEvent,
   ResponseFailedEvent,
   RequestContent,
+  InboundMessageContent,
 } from './types';
 import { TEXT_CHUNK_SIZE } from './config';
+
+// ============================================================================
+// Well-known topics (open-responses.md §9)
+// ============================================================================
+
+export const TOPIC_BOT_MESSAGES = '/v1.0/im/bot/messages';
+export const TOPIC_USER_MESSAGES = '/v1.0/im/user/messages';
 
 // ============================================================================
 // Helpers
@@ -35,11 +48,73 @@ function isoNow(): string {
 }
 
 // ============================================================================
-// Envelope Parsing (Task 4.1)
+// Envelope Parsing — inbound user messages (open-responses.md §9.1)
 // ============================================================================
 
 /**
- * Parse a WebSocket Envelope and extract the Open Responses event.
+ * Parse an inbound WebSocket Envelope from the user side.
+ *
+ * Per open-responses.md §9.1 the client only sends:
+ *   { type: "MESSAGE", headers: { messageId, topic }, data: '{"content":"..."}' }
+ *
+ * Returns the RequestContent enriched with headers info.
+ */
+export function parseRequest(rawMessage: string): RequestContent {
+  try {
+    const envelope = JSON.parse(rawMessage) as WebSocketEnvelope;
+
+    if (envelope.type !== 'MESSAGE') {
+      throw new Error(`Invalid envelope: expected type "MESSAGE", got "${envelope.type}"`);
+    }
+
+    if (!envelope.data || typeof envelope.data !== 'string') {
+      throw new Error('Invalid envelope: missing or non-string data field');
+    }
+
+    if (!envelope.headers || typeof envelope.headers !== 'object') {
+      throw new Error('Invalid envelope: missing or invalid headers field');
+    }
+
+    const messageId = envelope.headers['messageId'];
+    if (!messageId) {
+      throw new Error('Invalid envelope: missing headers.messageId');
+    }
+
+    const topic = envelope.headers['topic'] ?? TOPIC_USER_MESSAGES;
+
+    // data is the user payload — per spec only `content` is required
+    const payload = JSON.parse(envelope.data) as InboundMessageContent;
+
+    if (!payload.content || typeof payload.content !== 'string') {
+      throw new Error('Invalid request data: missing or non-string content field');
+    }
+
+    // Spread extra gateway fields first, then explicitly set the verified required fields
+    // so they always take precedence over anything in the raw payload.
+    const { content: _rawContent, ...extra } = payload;
+    return {
+      ...extra,
+      content: payload.content,
+      messageId,
+      topic,
+    };
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      const preview = rawMessage.substring(0, 100);
+      throw new Error(`Failed to parse request envelope: ${error.message}. Raw: ${preview}`);
+    }
+    throw error;
+  }
+}
+
+// ============================================================================
+// Envelope Parsing — inbound Open Responses events (open-responses.md §6)
+//
+// Used when the plugin receives server-emitted events (e.g. for monitoring/relay).
+// ============================================================================
+
+/**
+ * Parse a WebSocket Envelope and extract the Open Responses event from data.
  *
  * Validates: Requirements 11.1, 11.2, 11.3, 11.8
  */
@@ -47,12 +122,12 @@ export function parseEnvelope(rawMessage: string): OpenResponsesEvent {
   try {
     const envelope = JSON.parse(rawMessage) as WebSocketEnvelope;
 
-    if (!envelope.type || typeof envelope.type !== 'string') {
-      throw new Error('Invalid envelope: missing or invalid type field');
+    if (envelope.type !== 'MESSAGE') {
+      throw new Error(`Invalid envelope: expected type "MESSAGE", got "${envelope.type}"`);
     }
 
     if (!envelope.data || typeof envelope.data !== 'string') {
-      throw new Error('Invalid envelope: missing or invalid data field');
+      throw new Error('Invalid envelope: missing or non-string data field');
     }
 
     if (!envelope.headers || typeof envelope.headers !== 'object') {
@@ -80,20 +155,31 @@ export function parseEnvelope(rawMessage: string): OpenResponsesEvent {
 }
 
 // ============================================================================
-// Envelope Creation (Task 4.2)
+// Envelope Creation (open-responses.md §7)
+//
+// Wraps an Open Responses event in the standard WebSocket Envelope.
+// - type: "MESSAGE"  (uppercase, per spec)
+// - headers: { messageId, topic }  (no timestamp)
+// - data: JSON.stringify(event)
 // ============================================================================
 
 /**
- * Create a WebSocket Envelope from an Open Responses event.
+ * Create a WebSocket Envelope string from an Open Responses event.
+ *
+ * topic defaults to TOPIC_BOT_MESSAGES ("/v1.0/im/bot/messages") for
+ * all bot-originated messages, per open-responses.md §9.2.
  *
  * Validates: Requirements 11.4, 11.5, 11.6
  */
-export function createEnvelope(event: OpenResponsesEvent): string {
+export function createEnvelope(
+  event: OpenResponsesEvent,
+  topic: string = TOPIC_BOT_MESSAGES
+): string {
   const envelope: WebSocketEnvelope = {
-    type: "message",
+    type: 'MESSAGE',
     headers: {
       messageId: generateMessageId(),
-      timestamp: Date.now(),
+      topic,
     },
     data: JSON.stringify(event),
   };
@@ -102,13 +188,11 @@ export function createEnvelope(event: OpenResponsesEvent): string {
 }
 
 // ============================================================================
-// Event Creation Helpers (Task 4.3)
+// Event Creation Helpers (open-responses.md §6)
 // ============================================================================
 
 /**
- * Create a response.in_progress event.
- *
- * Validates: Requirements 10.2
+ * Create a response.in_progress event.  (§6.1)
  */
 export function createInProgressEvent(responseId: string): ResponseInProgressEvent {
   return {
@@ -120,9 +204,7 @@ export function createInProgressEvent(responseId: string): ResponseInProgressEve
 }
 
 /**
- * Create a response.output_item.added event.
- *
- * Validates: Requirements 10.2
+ * Create a response.output_item.added event.  (§6.2)
  */
 export function createOutputItemAddedEvent(
   responseId: string,
@@ -145,9 +227,7 @@ export function createOutputItemAddedEvent(
 }
 
 /**
- * Create a response.output_text.delta event.
- *
- * Validates: Requirements 10.2
+ * Create a response.output_text.delta event.  (§6.3)
  */
 export function createOutputTextDeltaEvent(
   responseId: string,
@@ -166,9 +246,7 @@ export function createOutputTextDeltaEvent(
 }
 
 /**
- * Create a response.content_part.done event.
- *
- * Validates: Requirements 10.2
+ * Create a response.content_part.done event.  (§6.4)
  */
 export function createContentPartDoneEvent(
   responseId: string,
@@ -186,9 +264,7 @@ export function createContentPartDoneEvent(
 }
 
 /**
- * Create a response.completed event.
- *
- * Validates: Requirements 10.2
+ * Create a response.completed event.  (§6.5)
  */
 export function createCompletedEvent(responseId: string): ResponseCompletedEvent {
   return {
@@ -199,20 +275,43 @@ export function createCompletedEvent(responseId: string): ResponseCompletedEvent
   };
 }
 
+/**
+ * Create a response.failed event.  (§6.6)
+ */
+export function createFailedEvent(
+  responseId: string,
+  code: string,
+  message: string,
+  details: any = null
+): ResponseFailedEvent {
+  return {
+    type: 'response.failed',
+    response_id: responseId,
+    status: 'failed',
+    error: { code, message, details },
+    timestamp: isoNow(),
+  };
+}
+
 // ============================================================================
-// Text to Event Sequence Conversion (Task 4.4)
+// Text → Event Sequence Conversion (open-responses.md §9.2 flow)
+//
+// A complete one-answer cycle emits 5 types of frames in order:
+//   1. response.in_progress
+//   2. response.output_item.added
+//   3. response.output_text.delta  (N times, chunked)
+//   4. response.content_part.done
+//   5. response.completed
 // ============================================================================
 
 /**
- * Convert text message to Open Responses event sequence.
- *
- * Generates: in_progress → output_item.added → output_text.delta (N) → content_part.done → completed
+ * Convert a full response text to an Open Responses event sequence.
  *
  * Validates: Requirements 8.3
  */
 export function textToEventSequence(text: string, responseId?: string): OpenResponsesEvent[] {
-  const respId = responseId || `resp_${Date.now()}`;
-  const itemId = `item_${Date.now()}`;
+  const respId = responseId ?? `resp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const itemId = `item_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
   const events: OpenResponsesEvent[] = [
     createInProgressEvent(respId),
@@ -231,89 +330,17 @@ export function textToEventSequence(text: string, responseId?: string): OpenResp
 }
 
 // ============================================================================
-// Request Parsing (Task 3.1)
+// Response Generation from Request (open-responses.md §9)
 // ============================================================================
 
 /**
- * Parse a server request from WebSocket Envelope.
- *
- * Validates: Requirements 2.1, 2.4
- */
-export function parseRequest(rawMessage: string): RequestContent {
-  try {
-    const envelope = JSON.parse(rawMessage) as WebSocketEnvelope;
-
-    if (!envelope.type || typeof envelope.type !== 'string') {
-      throw new Error('Invalid request envelope: missing or invalid type field');
-    }
-
-    if (!envelope.data || typeof envelope.data !== 'string') {
-      throw new Error('Invalid request envelope: missing or invalid data field');
-    }
-
-    if (!envelope.headers || typeof envelope.headers !== 'object') {
-      throw new Error('Invalid request envelope: missing or invalid headers field');
-    }
-
-    const requestData = JSON.parse(envelope.data);
-
-    if (!requestData.type || typeof requestData.type !== 'string') {
-      throw new Error('Invalid request content: missing or invalid type field');
-    }
-
-    if (!requestData.content || typeof requestData.content !== 'string') {
-      throw new Error('Invalid request content: missing or invalid content field');
-    }
-
-    if (!requestData.userId || typeof requestData.userId !== 'string') {
-      throw new Error('Invalid request content: missing or invalid userId field');
-    }
-
-    const requestId = envelope.headers['requestId'] || envelope.headers.messageId;
-
-    return {
-      type: requestData.type,
-      content: requestData.content,
-      userId: requestData.userId,
-      requestId,
-    };
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      const preview = rawMessage.substring(0, 100);
-      throw new Error(`Failed to parse request: ${error.message}. Raw: ${preview}`);
-    }
-    throw error;
-  }
-}
-
-// ============================================================================
-// Response Generation (Task 3.1)
-// ============================================================================
-
-/**
- * Generate Open Responses event sequence from request.
+ * Generate Open Responses event sequence from a parsed RequestContent.
  *
  * Validates: Requirements 2.2, 2.3, 2.5
  */
 export function generateResponseSequence(
-  request: RequestContent,
+  _request: RequestContent,
   responseText: string
 ): OpenResponsesEvent[] {
-  const responseId = `resp_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-  const itemId = `item_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-
-  const events: OpenResponsesEvent[] = [
-    createInProgressEvent(responseId),
-    createOutputItemAddedEvent(responseId, itemId),
-  ];
-
-  for (let i = 0; i < responseText.length; i += TEXT_CHUNK_SIZE) {
-    const chunk = responseText.substring(i, i + TEXT_CHUNK_SIZE);
-    events.push(createOutputTextDeltaEvent(responseId, itemId, 0, chunk));
-  }
-
-  events.push(createContentPartDoneEvent(responseId, itemId, 0));
-  events.push(createCompletedEvent(responseId));
-
-  return events;
+  return textToEventSequence(responseText);
 }

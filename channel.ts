@@ -120,7 +120,7 @@ async function sendTextMessage(
 ): Promise<void> {
   const account = resolveInstaClawAccount(cfg, accountId);
   const config = account.config;
-  const logger = new DebugLogger(config?.['debug'] ?? false, `[InstaClaw:outbound]`);
+  const logger = new DebugLogger(Boolean(config?.['debug']), `[InstaClaw:outbound]`);
 
   // Validate configuration
   if (!account.enabled) {
@@ -232,6 +232,8 @@ export const instaClawPlugin: ChannelPlugin = {
   meta: {
     id: "insta-claw-connector",
     label: "InstaClaw",
+    selectionLabel: "InstaClaw",
+    docsPath: "/channels/instaclaw",
     blurb: "InstaClaw WebSocket connector for bidirectional messaging with Open Responses protocol support",
   },
   
@@ -408,7 +410,7 @@ export const instaClawPlugin: ChannelPlugin = {
 
       // --- Write clientId/clientSecret to openclaw config for yintai_tasks_runner skill ---
       const connectorCfg = account.config;
-      const logger = new DebugLogger(connectorCfg?.['debug'] ?? false, `[InstaClaw:startAccount]`);
+      const logger = new DebugLogger(Boolean(connectorCfg?.['debug']), `[InstaClaw:startAccount]`);
 
       if (account.clientId && account.clientSecret) {
         const openclawConfigPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
@@ -477,29 +479,31 @@ export const instaClawPlugin: ChannelPlugin = {
    * actively initiate messages. The plugin acts as a request responder.
    */
   outbound: {
+    deliveryMode: 'gateway' as const,
     /**
      * Send text response to server request
-     * 
+     *
      * This method is called by OpenClaw to send a text response back to the server.
      * The plugin acts as a request responder - it receives requests from the server
      * and sends back Open Responses event sequences as responses.
-     * 
+     *
      * Protocol Flow:
      * 1. Server sends request to plugin
      * 2. OpenClaw processes request and generates response text
      * 3. This method converts response text to Open Responses event sequence
      * 4. Each event is wrapped in WebSocket Envelope and sent to server
-     * 
+     *
      * Validates: Requirements 2.2, 2.5, 8.1, 8.2, 8.3, 8.4, 8.5
-     * 
-     * @param cfg - Plugin configuration
-     * @param to - Target identifier (recipient)
-     * @param text - Response text content
-     * @param accountId - Account identifier
-     * @returns Promise that resolves when response is sent
+     *
+     * @param ctx - Outbound context (cfg, to, text, accountId)
+     * @returns Promise with delivery result
      */
-    sendText: async (cfg, to, text, accountId) => {
-      await sendTextMessage(cfg, to, text, accountId);
+    sendText: async (ctx) => {
+      await sendTextMessage(ctx.cfg, ctx.to, ctx.text, ctx.accountId ?? undefined);
+      return {
+        channel: CHANNEL_ID,
+        messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      };
     },
   },
 };

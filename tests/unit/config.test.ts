@@ -26,7 +26,7 @@ describe('Configuration Constants', () => {
 
     it('should have correct default WS_URL', () => {
       // If no environment variable is set, should use default
-      if (!process.env.INSTACLAW_WS_URL) {
+      if (!process.env['INSTACLAW_WS_URL']) {
         expect(WS_URL).toBe('wss://claw-dev.int-os.com/user-ws/');
       }
     });
@@ -44,7 +44,7 @@ describe('Configuration Constants', () => {
 
     it('should have correct default HEARTBEAT_INTERVAL', () => {
       // If no environment variable is set, should use default 30 seconds
-      if (!process.env.INSTACLAW_HEARTBEAT_INTERVAL) {
+      if (!process.env['INSTACLAW_HEARTBEAT_INTERVAL']) {
         expect(HEARTBEAT_INTERVAL).toBe(30000);
       }
     });
@@ -56,7 +56,7 @@ describe('Configuration Constants', () => {
 
     it('should have correct default TIMEOUT_THRESHOLD', () => {
       // If no environment variable is set, should use default 60 seconds
-      if (!process.env.INSTACLAW_TIMEOUT_THRESHOLD) {
+      if (!process.env['INSTACLAW_TIMEOUT_THRESHOLD']) {
         expect(TIMEOUT_THRESHOLD).toBe(60000);
       }
     });

@@ -15,7 +15,7 @@
  * 
  * Validates: Requirements 7.1, 12.2
  */
-export const WS_URL = process.env.INSTACLAW_WS_URL || "wss://claw-dev.int-os.com/user-ws/";
+export const WS_URL = process.env['INSTACLAW_WS_URL'] || "wss://claw-dev.int-os.com/user-ws/";
 
 /**
  * 心跳间隔（毫秒）
@@ -24,7 +24,7 @@ export const WS_URL = process.env.INSTACLAW_WS_URL || "wss://claw-dev.int-os.com
  * Validates: Requirements 12.2, 13.1
  */
 export const HEARTBEAT_INTERVAL = parseInt(
-  process.env.INSTACLAW_HEARTBEAT_INTERVAL || "30000",
+  process.env['INSTACLAW_HEARTBEAT_INTERVAL'] || "30000",
   10
 );
 
@@ -36,7 +36,7 @@ export const HEARTBEAT_INTERVAL = parseInt(
  * Validates: Requirements 12.2, 13.1
  */
 export const TIMEOUT_THRESHOLD = parseInt(
-  process.env.INSTACLAW_TIMEOUT_THRESHOLD || "60000",
+  process.env['INSTACLAW_TIMEOUT_THRESHOLD'] || "60000",
   10
 );
 

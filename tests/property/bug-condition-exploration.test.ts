@@ -1,198 +1,151 @@
 /**
  * Bug Condition Exploration Property Test
- * 
+ *
  * **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
- * 
- * This test explores the bug condition where the plugin incorrectly positions itself
- * as an active sender instead of a request responder. The test verifies that:
- * 
- * 1. The plugin can identify server requests (not just response events)
- * 2. The plugin positions itself as a responder (not active sender)
- * 3. The complete request-response flow is correctly implemented
- * 4. All message data fields are JSON strings
- * 
- * **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists.
- * **DO NOT attempt to fix the test or code when it fails.**
- * 
- * Expected counterexamples on unfixed code:
- * - Plugin cannot identify server request messages
- * - Plugin actively generates event sequences instead of responding to requests
- * - Missing request parsing logic, incorrect role positioning, unclear protocol flow
+ *
+ * This test explores and confirms the correct request-response flow after the fix.
+ * The plugin acts as a RESPONDER: it receives user messages (topic: /v1.0/im/user/messages)
+ * and responds with Open Responses event sequences (topic: /v1.0/im/bot/messages).
+ *
+ * Per open-responses.md §9:
+ *   Client → Plugin:  { type: "MESSAGE", headers: { messageId, topic: "/v1.0/im/user/messages" },
+ *                       data: '{"content":"..."}' }
+ *   Plugin → Client:  5 frames following the event sequence
  */
 
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import type { WebSocketEnvelope, OpenResponsesEvent } from '../../types.js';
-import { parseRequest, generateResponseSequence, createEnvelope } from '../../protocol.js';
+import {
+  parseRequest,
+  generateResponseSequence,
+  createEnvelope,
+  TOPIC_USER_MESSAGES,
+  TOPIC_BOT_MESSAGES,
+} from '../../protocol.js';
 
-describe('Bug Condition Exploration - Request-Response Protocol', () => {
+describe('Request-Response Protocol — Correct Implementation', () => {
   /**
-   * Property 1: Bug Condition - 插件作为被请求端正确处理请求-响应流程
-   * 
-   * **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
-   * 
-   * This property tests that for any server request message (wrapped in WebSocket Envelope),
+   * Property 1: Plugin correctly handles the request-response cycle
+   *
+   * For any inbound user message envelope (topic: user/messages),
    * the plugin SHALL:
-   * 1. Correctly parse the request and extract the WebSocket Envelope
-   * 2. Generate Open Responses event sequence as response
-   * 3. Ensure data field is JSON string format
-   * 4. Use unified protocol parsing module
-   * 5. Wrap each event independently in WebSocket Envelope
+   * 1. Parse the request from the envelope
+   * 2. Generate an Open Responses event sequence as response
+   * 3. Wrap each event in an envelope targeting bot/messages topic
+   * 4. Use JSON string for data field
    */
-  it('Property 1: Plugin SHALL act as responder and handle request-response flow correctly', () => {
-    // Generator for server request messages
-    const serverRequestArb = fc.record({
-      type: fc.constant('request' as const),
-      headers: fc.record({
-        messageId: fc.string({ minLength: 5, maxLength: 20 }),
-        timestamp: fc.integer({ min: Date.now() - 1000000, max: Date.now() }),
-        requestId: fc.uuid(),
-      }),
-      data: fc.string({ minLength: 1, maxLength: 200 }).map(text => 
-        JSON.stringify({ 
-          type: 'user.message',
-          content: text,
-          userId: 'user_123'
-        })
-      ),
-    });
+  it('Property 1: Plugin SHALL parse user messages and respond with Open Responses events', () => {
+    // Generator for valid user message envelopes (open-responses.md §9.1)
+    const userMessageArb = fc.record({
+      content: fc.string({ minLength: 1, maxLength: 200 }),
+      messageId: fc.string({ minLength: 5, maxLength: 20 }),
+    }).map(({ content, messageId }) =>
+      JSON.stringify({
+        type: 'MESSAGE',
+        headers: { messageId, topic: TOPIC_USER_MESSAGES },
+        data: JSON.stringify({ content }),
+      })
+    );
 
     fc.assert(
-      fc.property(serverRequestArb, (serverRequest) => {
-        // Simulate server sending a request to the plugin
-        const rawRequest = JSON.stringify(serverRequest);
-        
-        // ASSERTION 1: Plugin SHALL identify this as a request (not a response event)
-        // Expected behavior: There should be a function to parse and identify requests
-        // The parseRequest function should now exist in fixed code
-        
-        // Parse the request using the imported parseRequest function
+      fc.property(userMessageArb, (rawRequest) => {
+        // STEP 1: Parse the inbound user message
         const parsedRequest = parseRequest(rawRequest);
-        
-        // ASSERTION 2: Plugin SHALL position itself as responder
-        // The parsed request should contain information indicating this is a request to respond to
+
         expect(parsedRequest).toBeDefined();
-        expect(parsedRequest.type).toBe('user.message');
-        expect(parsedRequest.content).toBeDefined();
-        
-        // ASSERTION 3: Plugin SHALL generate response event sequence
-        // Expected behavior: There should be a function to generate response from request
-        // The generateResponseSequence function should now exist in fixed code
-        
-        // Generate response events using the imported generateResponseSequence function
-        const responseEvents = generateResponseSequence(parsedRequest, parsedRequest.content);
-        
-        // ASSERTION 4: Response SHALL be a valid Open Responses event sequence
+        expect(typeof parsedRequest.content).toBe('string');
+        expect(parsedRequest.content.length).toBeGreaterThan(0);
+        expect(parsedRequest.messageId).toBeDefined();
+        expect(parsedRequest.topic).toBe(TOPIC_USER_MESSAGES);
+
+        // STEP 2: Generate Open Responses event sequence
+        const responseText = `Echo: ${parsedRequest.content}`;
+        const responseEvents = generateResponseSequence(parsedRequest, responseText);
+
         expect(responseEvents).toBeDefined();
         expect(Array.isArray(responseEvents)).toBe(true);
         expect(responseEvents.length).toBeGreaterThan(0);
-        
-        // Verify event sequence structure
+
+        // Sequence order: in_progress → output_item.added → delta(s) → completed
         expect(responseEvents[0]?.type).toBe('response.in_progress');
         expect(responseEvents[responseEvents.length - 1]?.type).toBe('response.completed');
-        
-        // All events should have the same response_id
+
+        // All events share the same response_id
         const responseId = responseEvents[0]?.response_id;
         for (const event of responseEvents) {
           expect(event.response_id).toBe(responseId);
         }
-        
-        // ASSERTION 5: Each event SHALL be wrapped in WebSocket Envelope with JSON string data
+
+        // STEP 3: Wrap each event in an envelope targeting bot/messages topic
         for (const event of responseEvents) {
-          const envelopeStr = createEnvelope(event);
+          const envelopeStr = createEnvelope(event);           // default: TOPIC_BOT_MESSAGES
           const envelope = JSON.parse(envelopeStr) as WebSocketEnvelope;
-          
-          // Verify envelope structure
-          expect(envelope.type).toBe('message');
+
+          // Per spec: type = "MESSAGE" (uppercase)
+          expect(envelope.type).toBe('MESSAGE');
           expect(envelope.headers).toBeDefined();
-          expect(envelope.data).toBeDefined();
-          
+          expect(envelope.headers.messageId).toBeDefined();
+          // Bot responses go to bot/messages topic
+          expect(envelope.headers.topic).toBe(TOPIC_BOT_MESSAGES);
+          // Per spec: no timestamp in headers
+          expect((envelope.headers as any).timestamp).toBeUndefined();
+
           // CRITICAL: data field MUST be a JSON string
           expect(typeof envelope.data).toBe('string');
-          
-          // Verify data can be parsed as JSON
+
           const parsedData = JSON.parse(envelope.data);
           expect(parsedData).toBeDefined();
           expect(parsedData.type).toBeDefined();
           expect(parsedData.response_id).toBeDefined();
         }
       }),
-      {
-        numRuns: 20, // Scoped PBT: Limited runs for deterministic bug
-        verbose: true,
-      }
+      { numRuns: 20, verbose: true },
     );
   });
 
   /**
-   * Supplementary test: Verify plugin does NOT treat requests as response events
-   * 
-   * This test confirms the bug by showing that the current handleMessage function
-   * only processes response events, not requests.
+   * Supplementary: parseEnvelope correctly rejects non-MESSAGE type envelopes
+   *
+   * Per spec, the envelope type must be exactly "MESSAGE" (uppercase).
+   * Any deviation shall cause a parse error.
    */
-  it('Bug Evidence: Current handleMessage only processes response events, not requests', async () => {
-    // Create a mock server request
-    const serverRequest = {
-      type: 'request',
-      headers: {
-        messageId: 'msg_001',
-        timestamp: Date.now(),
-        requestId: 'req_123',
-      },
-      data: JSON.stringify({
-        type: 'user.message',
-        content: 'Hello, plugin!',
-        userId: 'user_456',
-      }),
-    };
-    
-    const rawRequest = JSON.stringify(serverRequest);
-    
-    // Try to process this with the current connection.ts handleMessage
-    // Expected: It will fail or ignore it because it only handles response events
-    
-    // Import parseEnvelope (this exists in current code)
+  it('parseEnvelope SHALL reject envelopes with incorrect type', async () => {
     const { parseEnvelope } = await import('../../protocol.js');
-    
-    // This will throw because the request doesn't have the expected response event structure
-    expect(() => {
-      parseEnvelope(rawRequest);
-    }).toThrow();
-    
-    // This confirms the bug: the plugin cannot parse server requests
-    // because parseEnvelope expects response events, not request messages
+
+    // Lowercase "message" — invalid per spec
+    const invalidEnvelope = JSON.stringify({
+      type: 'message',
+      headers: { messageId: 'msg_001', topic: TOPIC_BOT_MESSAGES },
+      data: JSON.stringify({
+        type: 'response.in_progress',
+        response_id: 'resp_123',
+        status: 'in_progress',
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    expect(() => parseEnvelope(invalidEnvelope)).toThrow('"MESSAGE"');
   });
 
   /**
-   * Supplementary test: Verify sendTextMessage acts as active sender, not responder
-   * 
-   * This test shows that the current implementation treats the plugin as an active sender.
+   * Supplementary: Verify event sequences have no spurious fields
+   *
+   * Events MUST NOT contain event_id, request_id, userId, or any non-spec field.
    */
-  it('Bug Evidence: sendTextMessage generates events proactively, not in response to requests', async () => {
-    // The current sendTextMessage in channel.ts directly calls textToEventSequence
-    // and sends events, without any reference to an incoming request
-    
+  it('Generated events SHALL NOT contain non-spec fields (event_id, etc.)', async () => {
     const { textToEventSequence } = await import('../../protocol.js');
-    
-    // Generate events (this is what sendTextMessage does)
+
     const events = textToEventSequence('Test message');
-    
-    // These events are generated proactively, not in response to a request
-    // There's no request_id or any link to an incoming request
-    expect(events[0]?.type).toBe('response.in_progress');
-    
-    // Bug evidence: The events don't reference any incoming request
-    // In correct implementation, these events should be generated in response to a request
-    // and should include request context (like request_id)
-    
-    // Check if events have request context (they shouldn't in unfixed code)
+
     for (const event of events) {
-      // In fixed code, events generated in response to requests should have request context
-      // In unfixed code, they don't
-      const hasRequestContext = 'request_id' in event || 'in_response_to' in event;
-      
-      // This assertion documents the bug: no request context
-      expect(hasRequestContext).toBe(false);
+      expect((event as any).event_id).toBeUndefined();
+      expect((event as any).request_id).toBeUndefined();
+      expect((event as any).userId).toBeUndefined();
+      // Every event must have the three base fields
+      expect(event.type).toBeDefined();
+      expect(event.response_id).toBeDefined();
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     }
   });
 });
