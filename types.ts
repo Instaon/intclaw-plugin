@@ -71,73 +71,90 @@ export interface WebSocketEnvelope {
 // ============================================================================
 
 /**
- * Base event interface for all Open Responses events
- * Validates: Requirements 10.1, 18.2
+ * Base event interface for all Open Responses events.
+ * Per open-responses.md spec, every event data contains at least:
+ *   - type: event type identifier
+ *   - response_id: for client correlation
+ *   - timestamp: ISO 8601
  */
 export interface BaseEvent {
   /** Event type identifier */
   type: string;
-  /** Unique event identifier */
-  event_id: string;
   /** Unique response identifier */
   response_id: string;
+  /** ISO 8601 timestamp */
+  timestamp: string;
 }
 
 /**
- * Response in progress event
- * Validates: Requirements 10.1, 18.2
+ * response.in_progress — Response enters in_progress state.
  */
 export interface ResponseInProgressEvent extends BaseEvent {
   type: 'response.in_progress';
+  /** Must be "in_progress" */
+  status: 'in_progress';
 }
 
 /**
- * Output item added event
- * Validates: Requirements 10.1, 18.2
+ * response.output_item.added — A new Item is added to output.
  */
 export interface OutputItemAddedEvent extends BaseEvent {
   type: 'response.output_item.added';
   /** The item being added */
   item: Item;
+  /** Index of this item in output.items[] */
+  index: number;
 }
 
 /**
- * Output text delta event (streaming text)
- * Validates: Requirements 10.1, 18.2
+ * response.output_text.delta — Incremental text content.
  */
 export interface OutputTextDeltaEvent extends BaseEvent {
   type: 'response.output_text.delta';
-  /** ID of the item containing this text */
+  /** ID of the item to update */
   item_id: string;
-  /** Index of the content part within the item */
+  /** Index in item.content[] */
   content_index: number;
-  /** Text delta */
+  /** Incremental text */
   delta: {
-    /** Incremental text content */
     text: string;
   };
 }
 
 /**
- * Response completed event
- * Validates: Requirements 10.1, 18.2
+ * response.content_part.done (optional) — Marks a content part completed.
  */
-export interface ResponseCompletedEvent extends BaseEvent {
-  type: 'response.completed';
+export interface ContentPartDoneEvent extends BaseEvent {
+  type: 'response.content_part.done';
+  /** ID of the item */
+  item_id: string;
+  /** Index in item.content[] */
+  content_index: number;
+  /** Typically "completed" */
+  status: 'completed';
 }
 
 /**
- * Response failed event
- * Validates: Requirements 10.1, 18.2
+ * response.completed — Entire response is done successfully.
+ */
+export interface ResponseCompletedEvent extends BaseEvent {
+  type: 'response.completed';
+  /** Must be "completed" */
+  status: 'completed';
+}
+
+/**
+ * response.failed — Unrecoverable error during response.
  */
 export interface ResponseFailedEvent extends BaseEvent {
   type: 'response.failed';
-  /** Error details */
+  /** Must be "failed" */
+  status: 'failed';
+  /** Standardized error object */
   error: {
-    /** Error code */
     code: string;
-    /** Error message */
     message: string;
+    details: any;
   };
 }
 
@@ -149,6 +166,7 @@ export type OpenResponsesEvent =
   | ResponseInProgressEvent
   | OutputItemAddedEvent
   | OutputTextDeltaEvent
+  | ContentPartDoneEvent
   | ResponseCompletedEvent
   | ResponseFailedEvent;
 
@@ -157,18 +175,25 @@ export type OpenResponsesEvent =
 // ============================================================================
 
 /**
- * Response object (top-level response container)
- * Validates: Requirements 18.1
+ * Response object (top-level response container, per open-responses.md §2).
  */
 export interface Response {
-  /** Unique response identifier */
+  /** Unique response identifier (e.g. "resp_123") */
   id: string;
-  /** Current status of the response */
-  status: "in_progress" | "completed" | "failed";
-  /** Array of output items */
-  items: Item[];
-  /** Creation timestamp */
-  createdAt: number;
+  /** Response status: queued, in_progress, completed, failed, incomplete */
+  status: "queued" | "in_progress" | "completed" | "failed" | "incomplete";
+  /** Output containing items array */
+  output: {
+    items: Item[];
+  };
+  /** Error details when status is "failed" */
+  error: null | {
+    code: string;
+    message: string;
+    details: any;
+  };
+  /** Extension metadata (trace id, etc.) */
+  metadata: Record<string, any>;
 }
 
 /**
@@ -178,8 +203,12 @@ export interface Response {
 export interface Item {
   /** Unique item identifier */
   id: string;
-  /** Type of the item (MVP: only "message" supported) */
-  type: "message";
+  /** Type of the item */
+  type: "message" | "function_call" | "function_call_output" | "reasoning";
+  /** Status of the item */
+  status: "in_progress" | "completed" | "incomplete" | "failed";
+  /** Role of the message sender (for message type) */
+  role?: "assistant" | "user";
   /** Array of content parts */
   content: ContentPart[];
 }
@@ -189,8 +218,10 @@ export interface Item {
  * Validates: Requirements 18.1
  */
 export interface ContentPart {
-  /** Type of content (MVP: only "text" supported) */
-  type: "text";
+  /** Type of content */
+  type: "output_text";
+  /** Status of this content part */
+  status: "in_progress" | "completed";
   /** Text content */
   text: string;
 }

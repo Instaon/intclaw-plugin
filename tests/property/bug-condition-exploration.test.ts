@@ -114,7 +114,6 @@ describe('Bug Condition Exploration - Request-Response Protocol', () => {
           const parsedData = JSON.parse(envelope.data);
           expect(parsedData).toBeDefined();
           expect(parsedData.type).toBeDefined();
-          expect(parsedData.event_id).toBeDefined();
           expect(parsedData.response_id).toBeDefined();
         }
       }),

@@ -42,17 +42,18 @@ describe('Preservation Property Tests - Existing Functionality', () => {
     const { parseEnvelope } = await import('../../protocol.js');
     
     // Generator for valid Open Responses events
+    // event_id is optional per Open Responses spec
     const validEventArb = fc.oneof(
       // response.in_progress event
       fc.record({
         type: fc.constant('response.in_progress' as const),
-        event_id: fc.string({ minLength: 10, maxLength: 30 }),
         response_id: fc.string({ minLength: 10, maxLength: 30 }),
-      }),
+      }).chain(base =>
+        fc.option(fc.string({ minLength: 10, maxLength: 30 }), { nil: undefined }).map(event_id => ({ ...base, event_id }))
+      ),
       // response.output_item.added event
       fc.record({
         type: fc.constant('response.output_item.added' as const),
-        event_id: fc.string({ minLength: 10, maxLength: 30 }),
         response_id: fc.string({ minLength: 10, maxLength: 30 }),
         item: fc.record({
           id: fc.string({ minLength: 10, maxLength: 30 }),
@@ -62,24 +63,28 @@ describe('Preservation Property Tests - Existing Functionality', () => {
             text: fc.string({ maxLength: 100 }),
           }), { minLength: 1, maxLength: 3 }),
         }),
-      }),
+      }).chain(base =>
+        fc.option(fc.string({ minLength: 10, maxLength: 30 }), { nil: undefined }).map(event_id => ({ ...base, event_id }))
+      ),
       // response.output_text.delta event
       fc.record({
         type: fc.constant('response.output_text.delta' as const),
-        event_id: fc.string({ minLength: 10, maxLength: 30 }),
         response_id: fc.string({ minLength: 10, maxLength: 30 }),
         item_id: fc.string({ minLength: 10, maxLength: 30 }),
         content_index: fc.integer({ min: 0, max: 5 }),
         delta: fc.record({
           text: fc.string({ minLength: 1, maxLength: 50 }),
         }),
-      }),
+      }).chain(base =>
+        fc.option(fc.string({ minLength: 10, maxLength: 30 }), { nil: undefined }).map(event_id => ({ ...base, event_id }))
+      ),
       // response.completed event
       fc.record({
         type: fc.constant('response.completed' as const),
-        event_id: fc.string({ minLength: 10, maxLength: 30 }),
         response_id: fc.string({ minLength: 10, maxLength: 30 }),
-      })
+      }).chain(base =>
+        fc.option(fc.string({ minLength: 10, maxLength: 30 }), { nil: undefined }).map(event_id => ({ ...base, event_id }))
+      )
     );
     
     // Generator for valid WebSocket Envelope
@@ -105,7 +110,7 @@ describe('Preservation Property Tests - Existing Functionality', () => {
         // Verify all required fields are present
         expect(parsedEvent).toBeDefined();
         expect(parsedEvent.type).toBe(originalEvent.type);
-        expect(parsedEvent.event_id).toBe(originalEvent.event_id);
+        expect(parsedEvent.event_id).toBe(originalEvent.event_id ?? undefined);
         expect(parsedEvent.response_id).toBe(originalEvent.response_id);
         
         // Verify type-specific fields

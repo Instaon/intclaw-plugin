@@ -84,7 +84,7 @@ describe('Protocol Module', () => {
       expect(() => parseEnvelope(raw)).toThrow('Invalid event: missing or invalid type field');
     });
 
-    it('should throw error for missing event_id field in event', () => {
+    it('should parse event without event_id field (per Open Responses spec)', () => {
       const raw = JSON.stringify({
         type: 'message',
         headers: {},
@@ -94,7 +94,11 @@ describe('Protocol Module', () => {
         }),
       });
 
-      expect(() => parseEnvelope(raw)).toThrow('Invalid event: missing or invalid event_id field');
+      const event = parseEnvelope(raw);
+
+      expect(event.type).toBe('response.in_progress');
+      expect(event.event_id).toBeUndefined();
+      expect(event.response_id).toBe('resp_456');
     });
 
     it('should throw descriptive error for invalid JSON', () => {

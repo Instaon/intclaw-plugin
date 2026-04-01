@@ -727,7 +727,6 @@ export async function monitorInstaClawProvider(
             logger.debug('Sent response event', {
               type: event.type,
               response_id: event.response_id,
-              event_id: event.event_id,
             });
           } else {
             logger.warn('Cannot send response event: connection not open', {
@@ -752,7 +751,6 @@ export async function monitorInstaClawProvider(
       logger.debug('Received Open Responses event', {
         type: event.type,
         response_id: event.response_id,
-        event_id: event.event_id,
       });
       
       // Handle different event types
@@ -762,8 +760,9 @@ export async function monitorInstaClawProvider(
           activeResponses.set(event.response_id, {
             id: event.response_id,
             status: 'in_progress',
-            items: [],
-            createdAt: Date.now(),
+            output: { items: [] },
+            error: null,
+            metadata: {},
           });
           logger.debug('Created response state', { response_id: event.response_id });
           break;
@@ -774,7 +773,7 @@ export async function monitorInstaClawProvider(
           const itemEvent = event as OutputItemAddedEvent;
           const response = activeResponses.get(itemEvent.response_id);
           if (response) {
-            response.items.push(itemEvent.item);
+            response.output.items.push(itemEvent.item);
             logger.debug('Added item to response', {
               response_id: itemEvent.response_id,
               item_id: itemEvent.item.id,
@@ -783,7 +782,6 @@ export async function monitorInstaClawProvider(
             logger.warn('Received output_item.added for unknown response', {
               response_id: itemEvent.response_id,
               item_id: itemEvent.item.id,
-              event_id: itemEvent.event_id,
               activeResponseCount: activeResponses.size,
             });
           }
@@ -795,7 +793,7 @@ export async function monitorInstaClawProvider(
           const deltaEvent = event as OutputTextDeltaEvent;
           const response = activeResponses.get(deltaEvent.response_id);
           if (response) {
-            const item = response.items.find(i => i.id === deltaEvent.item_id);
+            const item = response.output.items.find(i => i.id === deltaEvent.item_id);
             const contentPart = item?.content[deltaEvent.content_index];
             if (item && contentPart) {
               contentPart.text += deltaEvent.delta.text;
@@ -811,7 +809,7 @@ export async function monitorInstaClawProvider(
                 content_index: deltaEvent.content_index,
                 itemFound: !!item,
                 contentPartFound: !!contentPart,
-                itemsCount: response.items.length,
+                itemsCount: response.output.items.length,
               });
             }
           } else {
@@ -831,15 +829,15 @@ export async function monitorInstaClawProvider(
             response.status = 'completed';
             
             // Extract complete text from all items
-            const fullText = response.items
+            const fullText = response.output.items
               .flatMap(item => item.content)
               .map(part => part.text)
               .join('');
-            
+
             logger.info('Response completed', {
               response_id: event.response_id,
               text_length: fullText.length,
-              items_count: response.items.length,
+              items_count: response.output.items.length,
             });
             
             // TODO: Send to OpenClaw SDK
@@ -855,7 +853,6 @@ export async function monitorInstaClawProvider(
           } else {
             logger.warn('Received completed for unknown response', {
               response_id: event.response_id,
-              event_id: event.event_id,
               activeResponseCount: activeResponses.size,
             });
           }
@@ -872,7 +869,7 @@ export async function monitorInstaClawProvider(
               response_id: failedEvent.response_id,
               error_code: failedEvent.error.code,
               error_message: failedEvent.error.message,
-              items_count: response.items.length,
+              items_count: response.output.items.length,
             });
             
             // Clean up response state
@@ -892,7 +889,6 @@ export async function monitorInstaClawProvider(
           logger.warn('Received unknown event type', {
             type: (event as any).type,
             response_id: (event as any).response_id,
-            event_id: (event as any).event_id,
             eventKeys: Object.keys(event),
           });
       }

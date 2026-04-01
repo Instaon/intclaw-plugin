@@ -27,7 +27,8 @@
       "Bash(grep -l dispatchReplyFromConfig node_modules/openclaw/dist/*.js)",
       "Bash(grep -l \"createPluginRuntimeStore\\\\|withReplyDispatcher\\\\|dispatchReplyFromConfig\" node_modules/openclaw/dist/*plugin*.js)",
       "Bash(grep:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npm test:*)"
     ]
   }
 }
