@@ -234,9 +234,6 @@ export class WebSocketConnection {
     // Pong event (heartbeat response)
     this.ws.on('pong', () => {
       this.lastPongTime = Date.now();
-      this.logger.debug('Received pong response', {
-        lastPongTime: this.lastPongTime,
-      });
     });
 
     // Close event
@@ -378,12 +375,8 @@ export class WebSocketConnection {
         return;
       }
 
-      // Send ping
       try {
         this.ws.ping();
-        this.logger.debug('Sent ping heartbeat', {
-          timestamp: Date.now(),
-        });
       } catch (error) {
         this.logger.error('Failed to send ping, connection may be broken', error as Error, {
           wsState: this.ws?.readyState,
