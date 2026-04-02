@@ -80,3 +80,27 @@ export const STALE_RESPONSE_THRESHOLD = 5 * 60 * 1000; // 5 分钟
  * Validates: Requirements 12.2
  */
 export const TEXT_CHUNK_SIZE = 50;
+
+/**
+ * SDK request timeout (milliseconds)
+ * Default 60 seconds
+ * Can be overridden via environment variable SDK_REQUEST_TIMEOUT
+ * 
+ * Validates: Requirements 14.1
+ */
+export const SDK_REQUEST_TIMEOUT = parseInt(
+  process.env['SDK_REQUEST_TIMEOUT'] || "60000",
+  10
+);
+
+/**
+ * Maximum concurrent SDK requests
+ * Default 10
+ * Can be overridden via environment variable MAX_CONCURRENT_REQUESTS
+ * 
+ * Validates: Requirements 9.5
+ */
+export const MAX_CONCURRENT_REQUESTS = parseInt(
+  process.env['MAX_CONCURRENT_REQUESTS'] || "10",
+  10
+);

@@ -571,6 +571,15 @@ export class WebSocketConnection {
   isConnected(): boolean {
     return this.state === 'connected' && this.ws?.readyState === WebSocket.OPEN;
   }
+
+  /**
+   * Get the underlying WebSocket instance
+   * 
+   * @returns WebSocket instance or null if not connected
+   */
+  getWebSocket(): WebSocket | null {
+    return this.ws;
+  }
 }
 
 // ============================================================================
@@ -603,7 +612,8 @@ export async function monitorInstaClawProvider(
   // Import dependencies
   const { parseEnvelope } = await import('./protocol.js');
   const { DebugLogger } = await import('./logger.js');
-  const { WS_URL, HEARTBEAT_INTERVAL } = await import('./config.js');
+  const { WS_URL, HEARTBEAT_INTERVAL, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config.js');
+  const { SDKDispatcher } = await import('./sdk-dispatcher.js');
   
   // Extract plugin configuration
   const config = cfg.channels?.["insta-claw-connector"];
@@ -649,6 +659,16 @@ export async function monitorInstaClawProvider(
   // Response state management
   const activeResponses = new Map<string, Response>();
   
+  // Create SDK dispatcher instance
+  const dispatcher = new SDKDispatcher(
+    {
+      requestTimeout: SDK_REQUEST_TIMEOUT,
+      maxConcurrentRequests: MAX_CONCURRENT_REQUESTS,
+      debug: config?.debug ?? false,
+    },
+    logger
+  );
+  
   /**
    * Handle incoming messages.
    *
@@ -659,7 +679,7 @@ export async function monitorInstaClawProvider(
    *   - "/v1.0/im/user/messages"  → inbound user message; plugin responds with event sequence
    *   - "/v1.0/im/bot/messages"   → inbound Open Responses event (server relay / monitoring)
    *
-   * Validates: Requirements 2.1, 2.2, 2.5, 9.1-9.7, 16.1-16.6
+   * Validates: Requirements 2.1, 2.2, 2.4, 2.5, 9.1-9.7, 16.1-16.6, 18.1
    */
   async function handleMessage(rawMessage: string): Promise<void> {
     try {
@@ -667,8 +687,6 @@ export async function monitorInstaClawProvider(
       const {
         parseRequest,
         parseEnvelope,
-        generateResponseSequence,
-        createEnvelope,
         TOPIC_USER_MESSAGES,
       } = await import('./protocol.js');
 
@@ -677,15 +695,38 @@ export async function monitorInstaClawProvider(
       try {
         const peek = JSON.parse(rawMessage);
         topic = peek?.headers?.topic;
-      } catch {
-        // malformed JSON — fall through to error handling below
+      } catch (parseError) {
+        // Parse error handling (Requirement 2.4, 18.1)
+        // Log parse errors without crashing, continue processing other messages
+        logger.error('Failed to parse WebSocket message envelope', parseError as Error, {
+          message_preview: rawMessage.substring(0, 100),
+          message_length: rawMessage.length,
+          error_name: (parseError as Error).name,
+          error_message: (parseError as Error).message,
+        });
+        // Continue operation - don't crash (Requirement 18.1)
+        return;
       }
 
       // ── Inbound user message (plugin acts as responder) ──────────────
       if (topic === TOPIC_USER_MESSAGES) {
         logger.debug('Received user message (topic: user/messages)');
 
-        const request = parseRequest(rawMessage);
+        let request;
+        try {
+          request = parseRequest(rawMessage);
+        } catch (parseError) {
+          // Parse error handling (Requirement 2.4, 18.1)
+          // Log parse errors without crashing, continue processing other messages
+          logger.error('Failed to parse user request', parseError as Error, {
+            message_preview: rawMessage.substring(0, 100),
+            message_length: rawMessage.length,
+            error_name: (parseError as Error).name,
+            error_message: (parseError as Error).message,
+          });
+          // Continue operation - don't crash (Requirement 18.1)
+          return;
+        }
 
         logger.info('Parsed user request', {
           messageId: request.messageId,
@@ -693,53 +734,37 @@ export async function monitorInstaClawProvider(
           contentLength: request.content.length,
         });
 
-        // Generate response content.
-        // Echo for now; replace with AI / service call in production.
-        const responseText = `Echo: ${request.content}`;
-
-        logger.debug('Generated response text', {
-          messageId: request.messageId,
-          responseLength: responseText.length,
-        });
-
-        // Convert text → Open Responses event sequence
-        const responseEvents = generateResponseSequence(request, responseText);
-
-        logger.info('Generated response event sequence', {
-          messageId: request.messageId,
-          eventCount: responseEvents.length,
-          responseId: responseEvents[0]?.response_id,
-        });
-
-        // Send each event wrapped in an Envelope targeting bot/messages topic
-        for (const event of responseEvents) {
-          const envelopeStr = createEnvelope(event); // defaults to TOPIC_BOT_MESSAGES
-
-          if (connection.isConnected()) {
-            connection.send(envelopeStr);
-            logger.debug('Sent response event', {
-              type: event.type,
-              response_id: event.response_id,
-            });
-          } else {
-            logger.warn('Cannot send response event: connection not open', {
-              type: event.type,
-              response_id: event.response_id,
-              connectionState: connection.getState(),
-            });
-          }
+        // Dispatch to SDK (replaces the echo logic)
+        // The dispatcher will handle the request and send response events via WebSocket
+        const ws = connection.getWebSocket();
+        if (ws) {
+          await dispatcher.dispatchRequest(request, ws);
+        } else {
+          logger.error('Cannot dispatch request: WebSocket not available', undefined, {
+            messageId: request.messageId,
+            connectionState: connection.getState(),
+          });
         }
-
-        logger.info('Completed request-response cycle', {
-          messageId: request.messageId,
-          eventsSent: responseEvents.length,
-        });
-
+        
         return;
       }
       
       // Handle incoming Open Responses events (existing logic)
-      const event = parseEnvelope(rawMessage);
+      let event;
+      try {
+        event = parseEnvelope(rawMessage);
+      } catch (parseError) {
+        // Parse error handling (Requirement 2.4, 18.1)
+        // Log parse errors without crashing, continue processing other messages
+        logger.error('Failed to parse Open Responses event', parseError as Error, {
+          message_preview: rawMessage.substring(0, 100),
+          message_length: rawMessage.length,
+          error_name: (parseError as Error).name,
+          error_message: (parseError as Error).message,
+        });
+        // Continue operation - don't crash (Requirement 18.1)
+        return;
+      }
       
       logger.debug('Received Open Responses event', {
         type: event.type,
@@ -886,13 +911,17 @@ export async function monitorInstaClawProvider(
           });
       }
     } catch (error) {
+      // Top-level error handler (Requirement 2.4, 18.1)
+      // Log errors with full diagnostic context, continue processing other messages
       const err = error as Error;
       logger.error('Failed to process message', err, {
         message_preview: rawMessage.substring(0, 100),
         message_length: rawMessage.length,
         error_name: err.name,
         error_message: err.message,
+        stack: err.stack,
       });
+      // Continue operation - don't crash (Requirement 18.1)
     }
   }
   
