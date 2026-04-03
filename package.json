@@ -13,6 +13,7 @@
     "logger.ts",
     "types.ts",
     "channel.ts",
+    "sdk-dispatcher.ts",
     "openclaw.plugin.json",
     "README.md",
     "LICENSE"
