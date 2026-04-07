@@ -144,7 +144,7 @@ export class WebSocketConnection {
 
       // Register connection for outbound messages
       if (accountId) {
-        const { registerConnection } = await import('./channel.js');
+        const { registerConnection } = await import('./channel');
         registerConnection(accountId, this.ws);
         this.logger.debug('Registered WebSocket connection', { accountId });
       }
@@ -291,7 +291,7 @@ export class WebSocketConnection {
     // Unregister connection for outbound messages
     if (accountId) {
       try {
-        const { unregisterConnection } = await import('./channel.js');
+        const { unregisterConnection } = await import('./channel');
         unregisterConnection(accountId);
         this.logger.debug('Unregistered WebSocket connection', { accountId });
       } catch (error) {
@@ -610,10 +610,10 @@ export async function monitorInstaClawProvider(
   abortSignal: AbortSignal
 ): Promise<void> {
   // Import dependencies
-  const { parseEnvelope } = await import('./protocol.js');
-  const { DebugLogger } = await import('./logger.js');
-  const { WS_URL, HEARTBEAT_INTERVAL, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config.js');
-  const { SDKDispatcher } = await import('./sdk-dispatcher.js');
+  const { parseEnvelope } = await import('./protocol');
+  const { DebugLogger } = await import('./logger');
+  const { WS_URL, HEARTBEAT_INTERVAL, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config');
+  const { SDKDispatcher } = await import('./sdk-dispatcher');
   
   // Extract plugin configuration
   const config = cfg.channels?.["insta-claw-connector"];
@@ -688,7 +688,7 @@ export async function monitorInstaClawProvider(
         parseRequest,
         parseEnvelope,
         TOPIC_USER_MESSAGES,
-      } = await import('./protocol.js');
+      } = await import('./protocol');
 
       // Peek at the Envelope to read the topic for routing
       let topic: string | undefined;

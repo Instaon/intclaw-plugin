@@ -13,7 +13,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import type { DebugLogger } from './logger.js';
+import type { DebugLogger } from './logger';
 import {
   createInProgressEvent,
   createOutputItemAddedEvent,
@@ -22,7 +22,7 @@ import {
   createCompletedEvent,
   createFailedEvent,
   createEnvelope,
-} from './protocol.js';
+} from './protocol';
 
 /**
  * Correlation context for tracking request-response lifecycle
