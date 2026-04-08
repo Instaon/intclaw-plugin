@@ -15,7 +15,7 @@
  * 
  * Validates: Requirements 7.1, 12.2
  */
-export const WS_URL = process.env['INSTACLAW_WS_URL'] || "wss://claw-dev.int-os.com/user-ws/";
+export const WS_URL = process.env['INSTACLAW_WS_URL'] || "wss://claw-dev.int-os.com/ws/chat";
 
 /**
  * 心跳间隔（毫秒）
