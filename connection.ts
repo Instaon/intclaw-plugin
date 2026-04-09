@@ -602,12 +602,14 @@ export class WebSocketConnection {
  * @param cfg - Plugin configuration from OpenClaw
  * @param accountId - Account identifier
  * @param abortSignal - Signal to abort the connection
+ * @param channelRuntime - Optional channel runtime for AI dispatch via SDK
  * @returns Promise that resolves when connection is closed or aborted
  */
 export async function monitorInstaClawProvider(
   cfg: any,
   accountId: string,
-  abortSignal: AbortSignal
+  abortSignal: AbortSignal,
+  channelRuntime?: any
 ): Promise<void> {
   // Import dependencies
   const { parseEnvelope } = await import('./protocol');
@@ -660,13 +662,17 @@ export async function monitorInstaClawProvider(
   const activeResponses = new Map<string, Response>();
   
   // Create SDK dispatcher instance
+  // Pass cfg and channelRuntime so the dispatcher can call the real AI SDK
   const dispatcher = new SDKDispatcher(
     {
       requestTimeout: SDK_REQUEST_TIMEOUT,
       maxConcurrentRequests: MAX_CONCURRENT_REQUESTS,
       debug: config?.debug ?? false,
+      cfg,
     },
-    logger
+    logger,
+    accountId,
+    channelRuntime
   );
   
   /**
@@ -690,11 +696,13 @@ export async function monitorInstaClawProvider(
         TOPIC_USER_MESSAGES,
       } = await import('./protocol');
 
-      // Peek at the Envelope to read the topic for routing
+      // Peek at the Envelope to read the topic and type for routing
       let topic: string | undefined;
+      let envelopeType: string | undefined;
       try {
         const peek = JSON.parse(rawMessage);
         topic = peek?.headers?.topic;
+        envelopeType = peek?.type;
       } catch (parseError) {
         // Parse error handling (Requirement 2.4, 18.1)
         // Log parse errors without crashing, continue processing other messages
@@ -749,6 +757,15 @@ export async function monitorInstaClawProvider(
         return;
       }
       
+      // Skip non-MESSAGE envelope types (e.g. session.auto_bound, system events)
+      if (envelopeType !== undefined && envelopeType !== 'MESSAGE') {
+        logger.info('Ignoring non-MESSAGE WebSocket event', {
+          type: envelopeType,
+          message_length: rawMessage.length,
+        });
+        return;
+      }
+
       // Handle incoming Open Responses events (existing logic)
       let event;
       try {
@@ -858,12 +875,13 @@ export async function monitorInstaClawProvider(
               items_count: response.output.items.length,
             });
             
-            // TODO: Send to OpenClaw SDK
-            // This will be implemented when integrating with the channel plugin
-            // For now, just log the completed message
-            logger.debug('Complete message text', {
+            // 注意：此处是监控路径（topic: /v1.0/im/bot/messages）
+            // SDK dispatcher 已在流式回调中实时将各帧事件（delta/completed）推送给远端服务器。
+            // 本处是服务端将 bot 消息镜像回来的确认回声，无需再次发送，否则会造成死循环。
+            // 仅记录完整文本用于审计日志。
+            logger.debug('Response complete (audit log)', {
               response_id: event.response_id,
-              text: fullText.substring(0, 100) + (fullText.length > 100 ? '...' : ''),
+              text: fullText.substring(0, 200) + (fullText.length > 200 ? '...' : ''),
             });
             
             // Clean up response state

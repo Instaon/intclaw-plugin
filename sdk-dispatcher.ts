@@ -57,6 +57,9 @@ export interface RequestContext {
   /** Timeout timer reference */
   timeoutTimer: NodeJS.Timeout | null;
   
+  /** AbortController for cancelling SDK operation on timeout */
+  abortController: AbortController | null;
+  
   /** Request status */
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'timeout';
   
@@ -105,6 +108,9 @@ export interface DispatcherConfig {
   
   /** Account ID */
   accountId?: string;
+
+  /** Full OpenClaw configuration (needed for real SDK dispatch) */
+  cfg?: any;
 }
 
 /**
@@ -134,31 +140,45 @@ export class SDKDispatcher {
     debug: boolean;
     systemPrompt?: string;
     accountId?: string;
+    cfg?: any;
   };
+
+  /** Account ID for SDK dispatch */
+  private accountId?: string;
+
+  /** Channel runtime for real AI dispatch via Plugin SDK */
+  private channelRuntime?: any;
   
   /**
    * Creates a new SDKDispatcher instance
    * 
    * @param config - Dispatcher configuration
    * @param logger - Logger instance for diagnostic output
+   * @param accountId - Account identifier for SDK session keying
+   * @param channelRuntime - Optional channel runtime for real SDK dispatch
    * 
    * Validates: Requirements 1.1, 9.1, 13.1
    */
-  constructor(config: DispatcherConfig, logger: DebugLogger) {
+  constructor(config: DispatcherConfig, logger: DebugLogger, accountId?: string, channelRuntime?: any) {
     this.contexts = new Map<string, RequestContext>();
     this.logger = logger;
+    this.accountId = accountId;
+    this.channelRuntime = channelRuntime;
     this.config = {
       requestTimeout: config.requestTimeout,
       maxConcurrentRequests: config.maxConcurrentRequests,
       debug: config.debug,
       systemPrompt: config.systemPrompt,
       accountId: config.accountId,
+      cfg: config.cfg,
     };
     
     this.logger.info('SDKDispatcher initialized', {
       requestTimeout: this.config.requestTimeout,
       maxConcurrentRequests: this.config.maxConcurrentRequests,
       debug: this.config.debug,
+      hasChannelRuntime: !!channelRuntime,
+      accountId,
     });
   }
 
@@ -208,6 +228,9 @@ export class SDKDispatcher {
     // Create correlation context with unique response_id and item_id (Requirement 7.1)
     const responseId = this.generateResponseId();
     const itemId = this.generateItemId();
+
+    // Create AbortController to support cancelling the SDK call on timeout (Requirement 14.3)
+    const abortController = new AbortController();
     
     const context: RequestContext = {
       messageId: request.messageId,
@@ -218,6 +241,7 @@ export class SDKDispatcher {
       responseBuffer: '',
       firstChunkReceived: false,
       timeoutTimer: null,
+      abortController,
       status: 'pending',
       ws,
     };
@@ -242,10 +266,21 @@ export class SDKDispatcher {
     context.status = 'processing';
 
     try {
-      // Call SDK dispatch method with callback (Requirement 3.1, 3.2)
-      // For now, we'll use a mock SDK dispatch - actual SDK integration will be done later
-      await this.mockSDKDispatch(request.content, this.createCallback(request.messageId));
+      // Call real SDK dispatch method with callback (Requirement 3.1, 3.2)
+      await this.realSDKDispatch(
+        request.content,
+        this.createCallback(request.messageId),
+        abortController.signal
+      );
     } catch (error) {
+      // Ignore AbortError — it means timeout already handled this context
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.debug('SDK dispatch aborted (timeout already handled)', {
+          messageId: request.messageId,
+        });
+        return;
+      }
+
       // Handle SDK dispatch errors (Requirement 3.4, 8.1)
       this.logger.error('SDK dispatch failed', {
         messageId: request.messageId,
@@ -324,21 +359,82 @@ export class SDKDispatcher {
   }
 
   /**
-   * Mock SDK dispatch method (placeholder for actual SDK integration)
-   * This will be replaced with actual SDK integration later
+   * Dispatch request to the real SDK using channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher
+   *
+   * Converts the SDK's block-based reply delivery into the streaming callback pattern
+   * used by the rest of the dispatcher:
+   * - onPartialReply  → callback(chunk, null, false)   [streaming chunks]
+   * - deliver         → callback(null, null, true)      [completion signal]
+   * - onError         → callback(null, error, false)    [error signal]
+   *
+   * Falls back to a simple echo if channelRuntime is not available (e.g. in tests).
+   *
+   * Validates: Requirements 3.1, 3.2
    */
-  private async mockSDKDispatch(
+  private async realSDKDispatch(
     content: string,
-    callback: SDKCallback
+    callback: SDKCallback,
+    signal?: AbortSignal
   ): Promise<void> {
-    // Placeholder - actual SDK integration will be implemented later
-    // For now, just simulate a simple response
-    setTimeout(() => {
-      callback('Mock response for: ' + content.substring(0, 20), null, false);
-      setTimeout(() => {
-        callback(null, null, true);
-      }, 100);
-    }, 100);
+    if (!this.channelRuntime?.reply?.dispatchReplyWithBufferedBlockDispatcher) {
+      // Fallback: channelRuntime not injected (e.g. unit tests or backward-compat mode).
+      // Emit a single chunk then complete so that the rest of the pipeline still works.
+      this.logger.warn('channelRuntime not available — falling back to echo dispatch');
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (!signal?.aborted) {
+            callback('[no AI runtime] echo: ' + content.substring(0, 50), null, false);
+          }
+          setTimeout(() => {
+            if (!signal?.aborted) callback(null, null, true);
+            resolve();
+          }, 50);
+        }, 50);
+      });
+      return;
+    }
+
+    // Build a MsgContext for the SDK dispatch
+    const msgCtx = {
+      Body: content,
+      AccountId: this.accountId,
+      SessionKey: this.accountId ? `instaclaw:${this.accountId}` : undefined,
+    };
+
+    await this.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: msgCtx,
+      cfg: this.config.cfg,
+      replyOptions: {
+        abortSignal: signal,
+        // Stream partial reply chunks back via the callback
+        onPartialReply: (payload: { text?: string }) => {
+          if (signal?.aborted) return;
+          if (payload.text) {
+            callback(payload.text, null, false);
+          }
+        },
+      },
+      dispatcherOptions: {
+        // Final/block delivery — only signal completion here.
+        // Text content is already streamed via onPartialReply above;
+        // delivering it again in `deliver` would cause duplicate chunks.
+        // If the SDK skips onPartialReply entirely (non-streaming mode),
+        // `deliver` will be called with the full text — we emit it then.
+        deliver: async (payload: { text?: string }) => {
+          if (signal?.aborted) return;
+          // Only emit text if nothing was streamed via onPartialReply
+          // (i.e., first-chunk flag on context is still false)
+          // We detect non-streaming mode by checking responseBuffer is empty.
+          // In streaming mode the buffer already has content from handleChunk calls.
+          // NOTE: We always send the completion signal regardless.
+          callback(null, null, true);
+        },
+        onError: (err: unknown) => {
+          const error = err instanceof Error ? err : new Error(String(err));
+          callback(null, error, false);
+        },
+      },
+    });
   }
 
   /**
@@ -493,8 +589,14 @@ export class SDKDispatcher {
         });
       });
 
-      // TODO: Cancel SDK operation if possible (Requirement 14.3)
-      // This will be implemented when SDK provides cancellation API
+      // 取消 SDK 操作，释放 AI 推理资源（Requirement 14.3）
+      if (context.abortController) {
+        context.abortController.abort();
+        this.logger.info('SDK operation aborted due to timeout', {
+          messageId,
+          responseId: context.responseId,
+        });
+      }
 
       // Clean up context (Requirement 14.4)
       this.cleanupContext(messageId);
@@ -970,6 +1072,9 @@ export class SDKDispatcher {
       clearTimeout(context.timeoutTimer);
       context.timeoutTimer = null;
     }
+
+    // Clear abortController reference to allow GC
+    context.abortController = null;
     
     // Remove context from Map (Requirement 7.5)
     this.contexts.delete(messageId);

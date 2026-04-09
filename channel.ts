@@ -464,7 +464,8 @@ export const instaClawPlugin: ChannelPlugin = {
       // Start the Provider Monitor
       // This function will establish the WebSocket connection, handle reconnection,
       // process inbound messages, and maintain the connection until abort
-      await monitorInstaClawProvider(cfg, accountId, abortSignal);
+      // Pass channelRuntime (if available) for real AI dispatch via SDK
+      await monitorInstaClawProvider(cfg, accountId, abortSignal, ctx.channelRuntime);
 
       // Clean up connection reference when monitor stops
       activeConnections.delete(wsKey);
