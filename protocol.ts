@@ -52,56 +52,63 @@ function isoNow(): string {
 // ============================================================================
 
 /**
- * Parse an inbound WebSocket Envelope from the user side.
+ * Parse an inbound standard request object from the WebSocket.
  *
- * Per open-responses.md §9.1 the client only sends:
- *   { type: "MESSAGE", headers: { messageId, topic }, data: '{"content":"..."}' }
+ * Per open-responses.md specification, the server sends standard request objects:
+ *   { model: "...", stream: true/false, input: [...], metadata: { session_id: "..." } }
  *
- * Returns the RequestContent enriched with headers info.
+ * Returns the RequestContent with extracted fields from the standard format.
  */
 export function parseRequest(rawMessage: string): RequestContent {
   try {
-    const envelope = JSON.parse(rawMessage) as WebSocketEnvelope;
+    // Parse standard request format directly (no envelope wrapper)
+    const request = JSON.parse(rawMessage) as any;
 
-    if (envelope.type !== 'MESSAGE') {
-      throw new Error(`Invalid envelope: expected type "MESSAGE", got "${envelope.type}"`);
+    // Validate required fields in standard request format
+    if (!request.input || !Array.isArray(request.input) || request.input.length === 0) {
+      throw new Error('Invalid request: missing or empty input array');
     }
 
-    if (!envelope.data || typeof envelope.data !== 'string') {
-      throw new Error('Invalid envelope: missing or non-string data field');
+    const firstInput = request.input[0];
+    if (!firstInput.content || !Array.isArray(firstInput.content) || firstInput.content.length === 0) {
+      throw new Error('Invalid request: missing or empty content array in input[0]');
     }
 
-    if (!envelope.headers || typeof envelope.headers !== 'object') {
-      throw new Error('Invalid envelope: missing or invalid headers field');
+    const firstContent = firstInput.content[0];
+    if (!firstContent.text || typeof firstContent.text !== 'string') {
+      throw new Error('Invalid request: missing or non-string text field in input[0].content[0]');
     }
 
-    const messageId = envelope.headers['messageId'];
-    if (!messageId) {
-      throw new Error('Invalid envelope: missing headers.messageId');
+    if (!request.metadata || typeof request.metadata !== 'object') {
+      throw new Error('Invalid request: missing or invalid metadata object');
     }
 
-    const topic = envelope.headers['topic'] ?? TOPIC_USER_MESSAGES;
-
-    // data is the user payload — per spec only `content` is required
-    const payload = JSON.parse(envelope.data) as InboundMessageContent;
-
-    if (!payload.content || typeof payload.content !== 'string') {
-      throw new Error('Invalid request data: missing or non-string content field');
+    if (!request.metadata.session_id || typeof request.metadata.session_id !== 'string') {
+      throw new Error('Invalid request: missing or non-string metadata.session_id');
     }
 
-    // Spread extra gateway fields first, then explicitly set the verified required fields
-    // so they always take precedence over anything in the raw payload.
-    const { content: _rawContent, ...extra } = payload;
+    // Extract fields from standard request format
+    const content = firstContent.text;
+    const sessionId = request.metadata.session_id;
+    const stream = request.stream !== undefined ? request.stream : true; // Default to true if missing
+    const model = request.model; // Optional field
+
+    // Generate message ID (or extract from metadata if available)
+    const messageId = request.metadata.message_id || generateMessageId();
+
+    // Return RequestContent with all extracted fields
     return {
-      ...extra,
-      content: payload.content,
+      content,
       messageId,
-      topic,
+      sessionId,
+      stream,
+      model,
+      topic: TOPIC_USER_MESSAGES, // Keep for backward compatibility
     };
   } catch (error) {
     if (error instanceof SyntaxError) {
       const preview = rawMessage.substring(0, 100);
-      throw new Error(`Failed to parse request envelope: ${error.message}. Raw: ${preview}`);
+      throw new Error(`Failed to parse standard request: ${error.message}. Raw: ${preview}`);
     }
     throw error;
   }
@@ -155,36 +162,22 @@ export function parseEnvelope(rawMessage: string): OpenResponsesEvent {
 }
 
 // ============================================================================
-// Envelope Creation (open-responses.md §7)
+// Event Serialization (open-responses.md §7)
 //
-// Wraps an Open Responses event in the standard WebSocket Envelope.
-// - type: "MESSAGE"  (uppercase, per spec)
-// - headers: { messageId, topic }  (no timestamp)
-// - data: JSON.stringify(event)
+// Directly serializes Open Responses events to JSON without envelope wrapping.
+// Per the updated protocol specification, events are sent as standard JSON objects.
 // ============================================================================
 
 /**
- * Create a WebSocket Envelope string from an Open Responses event.
+ * Serialize an Open Responses event to JSON string.
  *
- * topic defaults to TOPIC_BOT_MESSAGES ("/v1.0/im/bot/messages") for
- * all bot-originated messages, per open-responses.md §9.2.
+ * Directly returns the JSON serialization of the event without envelope wrapping,
+ * as required by the standard protocol format in open-responses.md.
  *
- * Validates: Requirements 11.4, 11.5, 11.6
+ * Validates: Requirements 2.2
  */
-export function createEnvelope(
-  event: OpenResponsesEvent,
-  topic: string = TOPIC_BOT_MESSAGES
-): string {
-  const envelope: WebSocketEnvelope = {
-    type: 'MESSAGE',
-    headers: {
-      messageId: generateMessageId(),
-      topic,
-    },
-    data: JSON.stringify(event),
-  };
-
-  return JSON.stringify(envelope);
+export function createEnvelope(event: OpenResponsesEvent): string {
+  return JSON.stringify(event);
 }
 
 // ============================================================================
@@ -194,13 +187,20 @@ export function createEnvelope(
 /**
  * Create a response.in_progress event.  (§6.1)
  */
-export function createInProgressEvent(responseId: string): ResponseInProgressEvent {
-  return {
+export function createInProgressEvent(responseId: string, sessionId?: string): ResponseInProgressEvent {
+  const event: ResponseInProgressEvent = {
     type: 'response.in_progress',
     response_id: responseId,
     status: 'in_progress',
     timestamp: isoNow(),
   };
+  
+  // Include metadata with session_id if provided (Requirement 2.3)
+  if (sessionId) {
+    (event as any).metadata = { session_id: sessionId };
+  }
+  
+  return event;
 }
 
 /**
@@ -266,13 +266,20 @@ export function createContentPartDoneEvent(
 /**
  * Create a response.completed event.  (§6.5)
  */
-export function createCompletedEvent(responseId: string): ResponseCompletedEvent {
-  return {
+export function createCompletedEvent(responseId: string, sessionId?: string): ResponseCompletedEvent {
+  const event: ResponseCompletedEvent = {
     type: 'response.completed',
     response_id: responseId,
     status: 'completed',
     timestamp: isoNow(),
   };
+  
+  // Include metadata with session_id if provided (Requirement 2.3)
+  if (sessionId) {
+    (event as any).metadata = { session_id: sessionId };
+  }
+  
+  return event;
 }
 
 /**
@@ -289,6 +296,49 @@ export function createFailedEvent(
     response_id: responseId,
     status: 'failed',
     error: { code, message, details },
+    timestamp: isoNow(),
+  };
+}
+
+/**
+ * Create a complete response object for non-streaming mode (stream=false).
+ * 
+ * Returns a complete response object with all fields populated,
+ * including id, object, status, output, output_text, and metadata.
+ * 
+ * Validates: Requirements 2.5
+ */
+export function createCompleteResponse(
+  responseId: string,
+  itemId: string,
+  text: string,
+  sessionId: string
+): any {
+  return {
+    id: responseId,
+    object: 'response',
+    status: 'completed',
+    output: {
+      items: [
+        {
+          id: itemId,
+          type: 'message',
+          status: 'completed',
+          role: 'assistant',
+          content: [
+            {
+              type: 'output_text',
+              status: 'completed',
+              text: text,
+            },
+          ],
+        },
+      ],
+    },
+    output_text: text,
+    metadata: {
+      session_id: sessionId,
+    },
     timestamp: isoNow(),
   };
 }

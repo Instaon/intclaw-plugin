@@ -397,4 +397,150 @@ describe('Preservation Property Tests - Existing Functionality', () => {
       { numRuns: 30, verbose: true },
     );
   });
+
+  /**
+   * Property 2.8: SDK Dispatcher Initialization Preservation
+   *
+   * For any valid configuration, the SDK dispatcher SHALL initialize correctly
+   * and maintain its configuration state.
+   * 
+   * **Validates: Requirement 3.1**
+   */
+  it('Property 2.8: SDK dispatcher initialization SHALL remain unchanged', async () => {
+    const { SDKDispatcher } = await import('../../sdk-dispatcher.js');
+    const { DebugLogger } = await import('../../logger.js');
+
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1000, max: 120000 }),
+        fc.integer({ min: 1, max: 50 }),
+        fc.boolean(),
+        (requestTimeout, maxConcurrent, debug) => {
+          const logger = new DebugLogger(false, '[Test]');
+          const dispatcher = new SDKDispatcher(
+            {
+              requestTimeout,
+              maxConcurrentRequests: maxConcurrent,
+              debug,
+            },
+            logger
+          );
+
+          // Verify dispatcher is initialized
+          expect(dispatcher).toBeDefined();
+          expect(dispatcher.getActiveRequestCount).toBeDefined();
+          expect(typeof dispatcher.getActiveRequestCount()).toBe('number');
+          expect(dispatcher.getActiveRequestCount()).toBe(0);
+        }
+      ),
+      { numRuns: 20, verbose: true }
+    );
+  });
+
+  /**
+   * Property 2.9: Active Request Count Tracking Preservation
+   *
+   * For any dispatcher state, getActiveRequestCount SHALL return a non-negative integer.
+   * 
+   * **Validates: Requirement 3.4**
+   */
+  it('Property 2.9: Active request count tracking SHALL remain unchanged', async () => {
+    const { SDKDispatcher } = await import('../../sdk-dispatcher.js');
+    const { DebugLogger } = await import('../../logger.js');
+
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 10 }),
+        (maxConcurrent) => {
+          const logger = new DebugLogger(false, '[Test]');
+          const dispatcher = new SDKDispatcher(
+            {
+              requestTimeout: 60000,
+              maxConcurrentRequests: maxConcurrent,
+              debug: false,
+            },
+            logger
+          );
+
+          // Verify active count is always a non-negative integer
+          const activeCount = dispatcher.getActiveRequestCount();
+          expect(Number.isInteger(activeCount)).toBe(true);
+          expect(activeCount).toBeGreaterThanOrEqual(0);
+        }
+      ),
+      { numRuns: 30, verbose: true }
+    );
+  });
+
+  /**
+   * Property 2.10: Response ID and Item ID Format Preservation
+   *
+   * For any generated IDs, they SHALL follow the expected format pattern.
+   * 
+   * **Validates: Requirement 3.2**
+   */
+  it('Property 2.10: ID generation format SHALL remain unchanged', async () => {
+    const {
+      createInProgressEvent,
+      createOutputItemAddedEvent,
+      createOutputTextDeltaEvent,
+    } = await import('../../protocol.js');
+
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 10, maxLength: 30 }).map(s => `resp_${s}`),
+        fc.string({ minLength: 10, maxLength: 30 }).map(s => `item_${s}`),
+        (responseId, itemId) => {
+          // Create events with provided IDs
+          const inProgressEvent = createInProgressEvent(responseId);
+          const itemAddedEvent = createOutputItemAddedEvent(responseId, itemId);
+          const deltaEvent = createOutputTextDeltaEvent(responseId, itemId, 0, 'test');
+
+          // Verify IDs are preserved in events
+          expect(inProgressEvent.response_id).toBe(responseId);
+          expect(itemAddedEvent.response_id).toBe(responseId);
+          expect(itemAddedEvent.item.id).toBe(itemId);
+          expect(deltaEvent.response_id).toBe(responseId);
+          expect(deltaEvent.item_id).toBe(itemId);
+        }
+      ),
+      { numRuns: 30, verbose: true }
+    );
+  });
+
+  /**
+   * Property 2.13: Logging Preservation
+   *
+   * For any operation, the logger SHALL continue to output diagnostic information
+   * without affecting functionality.
+   * 
+   * **Validates: Requirement 3.5**
+   */
+  it('Property 2.13: Logging SHALL remain unchanged', async () => {
+    const { DebugLogger } = await import('../../logger.js');
+
+    fc.assert(
+      fc.property(
+        fc.boolean(),
+        fc.string({ minLength: 1, maxLength: 100 }),
+        fc.record({
+          key1: fc.string(),
+          key2: fc.integer(),
+        }),
+        (debugEnabled, message, context) => {
+          const logger = new DebugLogger(debugEnabled, '[Test]');
+
+          // Logger methods should not throw
+          expect(() => logger.info(message, context)).not.toThrow();
+          expect(() => logger.debug(message, context)).not.toThrow();
+          expect(() => logger.warn(message, context)).not.toThrow();
+          expect(() => logger.error(message, new Error('test error'), context)).not.toThrow();
+
+          // Logger should be functional
+          expect(logger).toBeDefined();
+        }
+      ),
+      { numRuns: 20, verbose: true }
+    );
+  });
 });

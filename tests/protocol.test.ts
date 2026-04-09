@@ -163,8 +163,8 @@ describe('Protocol Module', () => {
   // ───────────────────────────────────────────────────────────────────────────
   // Envelope Creation (Task 4.2)
   // ───────────────────────────────────────────────────────────────────────────
-  describe('Envelope Creation — createEnvelope (Task 4.2)', () => {
-    it('should create envelope with correct structure per open-responses.md §7', () => {
+  describe('Event Serialization — createEnvelope (Task 3.3)', () => {
+    it('should serialize event directly without envelope wrapping', () => {
       const event: ResponseInProgressEvent = {
         type: 'response.in_progress',
         response_id: 'resp_456',
@@ -172,53 +172,21 @@ describe('Protocol Module', () => {
         timestamp: '2026-03-31T10:00:00Z',
       };
 
-      const envelopeStr = createEnvelope(event);
-      const envelope = JSON.parse(envelopeStr);
+      const serialized = createEnvelope(event);
+      const parsed = JSON.parse(serialized);
 
-      // Per spec: type is uppercase "MESSAGE"
-      expect(envelope.type).toBe('MESSAGE');
-      // Per spec: headers has messageId and topic only (no timestamp)
-      expect(envelope.headers).toBeDefined();
-      expect(envelope.headers.messageId).toMatch(/^msg_\d+_[a-z0-9]+$/);
-      expect(envelope.headers.topic).toBe(TOPIC_BOT_MESSAGES);
-      expect(envelope.headers.timestamp).toBeUndefined();
-      // Per spec: data is a JSON string
-      expect(typeof envelope.data).toBe('string');
-
-      const parsedEvent = JSON.parse(envelope.data);
-      expect(parsedEvent.type).toBe('response.in_progress');
-      expect(parsedEvent.response_id).toBe('resp_456');
+      // Should be direct event serialization, not wrapped in envelope
+      expect(parsed.type).toBe('response.in_progress');
+      expect(parsed.response_id).toBe('resp_456');
+      expect(parsed.status).toBe('in_progress');
+      expect(parsed.timestamp).toBe('2026-03-31T10:00:00Z');
+      
+      // Should NOT have envelope structure
+      expect(parsed.headers).toBeUndefined();
+      expect(parsed.data).toBeUndefined();
     });
 
-    it('should allow custom topic override', () => {
-      const event: ResponseInProgressEvent = {
-        type: 'response.in_progress',
-        response_id: 'resp_456',
-        status: 'in_progress',
-        timestamp: '2026-03-31T10:00:00Z',
-      };
-
-      const envelopeStr = createEnvelope(event, TOPIC_USER_MESSAGES);
-      const envelope = JSON.parse(envelopeStr);
-
-      expect(envelope.headers.topic).toBe(TOPIC_USER_MESSAGES);
-    });
-
-    it('should generate unique message IDs', () => {
-      const event: ResponseInProgressEvent = {
-        type: 'response.in_progress',
-        response_id: 'resp_456',
-        status: 'in_progress',
-        timestamp: new Date().toISOString(),
-      };
-
-      const envelope1 = JSON.parse(createEnvelope(event));
-      const envelope2 = JSON.parse(createEnvelope(event));
-
-      expect(envelope1.headers.messageId).not.toBe(envelope2.headers.messageId);
-    });
-
-    it('should preserve all event fields in envelope.data', () => {
+    it('should preserve all event fields in serialization', () => {
       const event: OutputTextDeltaEvent = {
         type: 'response.output_text.delta',
         response_id: 'resp_456',
@@ -228,15 +196,39 @@ describe('Protocol Module', () => {
         timestamp: new Date().toISOString(),
       };
 
-      const envelopeStr = createEnvelope(event);
-      const envelope = JSON.parse(envelopeStr);
-      const parsedEvent = JSON.parse(envelope.data);
+      const serialized = createEnvelope(event);
+      const parsed = JSON.parse(serialized);
 
-      expect(parsedEvent.type).toBe('response.output_text.delta');
-      expect(parsedEvent.response_id).toBe('resp_456');
-      expect(parsedEvent.item_id).toBe('item_123');
-      expect(parsedEvent.content_index).toBe(0);
-      expect(parsedEvent.delta.text).toBe('Hello');
+      // All event fields should be preserved at top level
+      expect(parsed.type).toBe('response.output_text.delta');
+      expect(parsed.response_id).toBe('resp_456');
+      expect(parsed.item_id).toBe('item_123');
+      expect(parsed.content_index).toBe(0);
+      expect(parsed.delta.text).toBe('Hello');
+      
+      // Should NOT have envelope structure
+      expect(parsed.headers).toBeUndefined();
+      expect(parsed.data).toBeUndefined();
+    });
+
+    it('should handle different event types correctly', () => {
+      const completedEvent: ResponseCompletedEvent = {
+        type: 'response.completed',
+        response_id: 'resp_789',
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+      };
+
+      const serialized = createEnvelope(completedEvent);
+      const parsed = JSON.parse(serialized);
+
+      expect(parsed.type).toBe('response.completed');
+      expect(parsed.response_id).toBe('resp_789');
+      expect(parsed.status).toBe('completed');
+      
+      // Should NOT have envelope structure
+      expect(parsed.headers).toBeUndefined();
+      expect(parsed.data).toBeUndefined();
     });
   });
 

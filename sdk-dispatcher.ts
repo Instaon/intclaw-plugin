@@ -21,6 +21,7 @@ import {
   createContentPartDoneEvent,
   createCompletedEvent,
   createFailedEvent,
+  createCompleteResponse,
   createEnvelope,
 } from './protocol';
 
@@ -65,6 +66,12 @@ export interface RequestContext {
   
   /** WebSocket connection reference for sending events */
   ws: WebSocket;
+  
+  /** Streaming flag for response mode selection */
+  stream: boolean;
+  
+  /** Session identifier for routing */
+  sessionId: string;
 }
 
 /**
@@ -188,13 +195,13 @@ export class SDKDispatcher {
    * Creates correlation context, sets up timeout, and calls SDK dispatch method
    * with a callback closure that captures the context.
    * 
-   * Validates: Requirements 2.5, 3.1, 3.2, 7.1, 9.5, 14.1
+   * Validates: Requirements 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 7.1, 9.5, 14.1
    * 
    * @param request - Parsed request content from WebSocket
    * @param ws - WebSocket connection for sending response events
    */
   async dispatchRequest(
-    request: { content: string; messageId: string },
+    request: { content: string; messageId: string; sessionId: string; stream: boolean },
     ws: WebSocket
   ): Promise<void> {
     // Validate request content is non-empty string (Requirement 2.5)
@@ -244,6 +251,8 @@ export class SDKDispatcher {
       abortController,
       status: 'pending',
       ws,
+      stream: request.stream,
+      sessionId: request.sessionId,
     };
 
     // Store context
@@ -401,33 +410,64 @@ export class SDKDispatcher {
       SessionKey: this.accountId ? `instaclaw:${this.accountId}` : undefined,
     };
 
+    // Guard against double-completion:
+    // In streaming mode the SDK resolves the Promise when done but may NOT call deliver.
+    // In non-streaming/tool mode deliver IS called before the Promise resolves.
+    // We use safeComplete so only the first call wins regardless of which path fires.
+    let alreadyCompleted = false;
+    const safeComplete = () => {
+      if (alreadyCompleted || signal?.aborted) return;
+      alreadyCompleted = true;
+      callback(null, null, true);
+    };
+
+    // Track whether onPartialReply was called at least once.
+    // If true, we are in streaming mode and deliver() must NOT re-emit the text
+    // (deliver() in streaming mode contains the FULL accumulated text, not a new delta,
+    // so emitting it again would duplicate the entire response).
+    let streamedAnyChunks = false;
+
+    // !! ROOT CAUSE FIX !!
+    // SDK's onPartialReply sends CUMULATIVE text, NOT incremental deltas.
+    // Each call: payload.text = everything generated so far (grows monotonically).
+    // We track the previous snapshot and only forward the newly added characters.
+    // Log evidence: chunkLength sequence 2→4→11→18→21→30→37... (always increasing)
+    let previousAccumulatedText = '';
+
     await this.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
       ctx: msgCtx,
       cfg: this.config.cfg,
       replyOptions: {
         abortSignal: signal,
-        // Stream partial reply chunks back via the callback
+        // onPartialReply carries CUMULATIVE text, not a true delta.
+        // Compute the actual new characters by slicing from previousAccumulatedText.length.
         onPartialReply: (payload: { text?: string }) => {
           if (signal?.aborted) return;
-          if (payload.text) {
-            callback(payload.text, null, false);
+          if (payload.text && payload.text.length > previousAccumulatedText.length) {
+            const delta = payload.text.substring(previousAccumulatedText.length);
+            previousAccumulatedText = payload.text;
+            if (delta) {
+              streamedAnyChunks = true;
+              callback(delta, null, false);
+            }
           }
         },
       },
       dispatcherOptions: {
-        // Final/block delivery — only signal completion here.
-        // Text content is already streamed via onPartialReply above;
-        // delivering it again in `deliver` would cause duplicate chunks.
-        // If the SDK skips onPartialReply entirely (non-streaming mode),
-        // `deliver` will be called with the full text — we emit it then.
+        // deliver() is called by the SDK after generation completes.
+        // - Streaming mode: onPartialReply already sent all incremental text chunks,
+        //   so we MUST skip text here to avoid duplicating the entire response.
+        //   We only call safeComplete() to close the request.
+        // - Non-streaming mode: onPartialReply is never called, so deliver() carries
+        //   the full text block and we emit it here.
         deliver: async (payload: { text?: string }) => {
           if (signal?.aborted) return;
-          // Only emit text if nothing was streamed via onPartialReply
-          // (i.e., first-chunk flag on context is still false)
-          // We detect non-streaming mode by checking responseBuffer is empty.
-          // In streaming mode the buffer already has content from handleChunk calls.
-          // NOTE: We always send the completion signal regardless.
-          callback(null, null, true);
+          if (!streamedAnyChunks && payload.text) {
+            // Non-streaming (block/tool) mode: emit the full reply as a single chunk
+            callback(payload.text, null, false);
+          }
+          // Always signal completion (idempotent guard inside safeComplete)
+          safeComplete();
         },
         onError: (err: unknown) => {
           const error = err instanceof Error ? err : new Error(String(err));
@@ -435,6 +475,10 @@ export class SDKDispatcher {
         },
       },
     });
+
+    // Fallback completion for streaming mode when deliver() is not called.
+    // safeComplete() is idempotent — no-op if deliver() already fired it.
+    safeComplete();
   }
 
   /**
@@ -633,13 +677,13 @@ export class SDKDispatcher {
    * 
    * Wraps all operations in try-catch for error isolation.
    * 
-   * Validates: Requirements 5.1, 6.1, 6.2, 6.3, 6.4, 8.3, 8.4, 8.5
+   * Validates: Requirements 2.3, 5.1, 6.1, 6.2, 6.3, 6.4, 8.3, 8.4, 8.5
    * 
    * @param context - Request context containing response_id and WebSocket
    */
   private async generateInProgressEvent(context: RequestContext): Promise<void> {
     try {
-      const event = createInProgressEvent(context.responseId);
+      const event = createInProgressEvent(context.responseId, context.sessionId);
       const envelope = createEnvelope(event);
       
       if (context.ws.readyState === 1) { // WebSocket.OPEN
@@ -647,6 +691,7 @@ export class SDKDispatcher {
         this.logger.debug('Sent response.in_progress event', {
           messageId: context.messageId,
           responseId: context.responseId,
+          sessionId: context.sessionId,
         });
       } else {
         this.logger.warn('WebSocket not open, cannot send in_progress event', {
@@ -804,13 +849,13 @@ export class SDKDispatcher {
    * 
    * Wraps all operations in try-catch for error isolation.
    * 
-   * Validates: Requirements 5.3, 6.1, 6.2, 6.3, 6.4, 8.3, 8.4, 8.5
+   * Validates: Requirements 2.3, 5.3, 6.1, 6.2, 6.3, 6.4, 8.3, 8.4, 8.5
    * 
    * @param context - Request context containing response_id and WebSocket
    */
   private async generateCompletedEvent(context: RequestContext): Promise<void> {
     try {
-      const event = createCompletedEvent(context.responseId);
+      const event = createCompletedEvent(context.responseId, context.sessionId);
       const envelope = createEnvelope(event);
       
       if (context.ws.readyState === 1) { // WebSocket.OPEN
@@ -818,6 +863,7 @@ export class SDKDispatcher {
         this.logger.debug('Sent response.completed event', {
           messageId: context.messageId,
           responseId: context.responseId,
+          sessionId: context.sessionId,
         });
       } else {
         this.logger.warn('WebSocket not open, cannot send completed event', {
@@ -829,6 +875,57 @@ export class SDKDispatcher {
     } catch (error) {
       // Error isolation: log error with full diagnostic context (Requirement 8.3, 8.4, 8.5)
       this.logger.error('Failed to generate completed event', {
+        messageId: context.messageId,
+        responseId: context.responseId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      // Don't rethrow - continue processing other requests (Requirement 8.5)
+    }
+  }
+
+  /**
+   * Generate and send complete response object for non-streaming mode
+   * 
+   * Creates a complete response object with all fields populated,
+   * serializes it, and sends it via WebSocket.
+   * 
+   * Used when stream=false in the request.
+   * 
+   * Wraps all operations in try-catch for error isolation.
+   * 
+   * Validates: Requirements 2.5, 6.1, 6.2, 6.3, 6.4, 8.3, 8.4, 8.5
+   * 
+   * @param context - Request context containing response_id, item_id, and WebSocket
+   */
+  private async generateCompleteResponse(context: RequestContext): Promise<void> {
+    try {
+      const response = createCompleteResponse(
+        context.responseId,
+        context.itemId,
+        context.responseBuffer,
+        context.sessionId
+      );
+      const serialized = JSON.stringify(response);
+      
+      if (context.ws.readyState === 1) { // WebSocket.OPEN
+        context.ws.send(serialized);
+        this.logger.debug('Sent complete response object', {
+          messageId: context.messageId,
+          responseId: context.responseId,
+          sessionId: context.sessionId,
+          textLength: context.responseBuffer.length,
+        });
+      } else {
+        this.logger.warn('WebSocket not open, cannot send complete response', {
+          messageId: context.messageId,
+          responseId: context.responseId,
+          readyState: context.ws.readyState,
+        });
+      }
+    } catch (error) {
+      // Error isolation: log error with full diagnostic context (Requirement 8.3, 8.4, 8.5)
+      this.logger.error('Failed to generate complete response', {
         messageId: context.messageId,
         responseId: context.responseId,
         error: error instanceof Error ? error.message : String(error),
@@ -946,26 +1043,44 @@ export class SDKDispatcher {
   /**
    * Handle completion from SDK callback
    * 
-   * Generates content_part.done and response.completed events,
-   * updates context status, and cleans up resources.
+   * Generates content_part.done and response.completed events for streaming mode,
+   * or generates a complete response object for non-streaming mode.
+   * Updates context status and cleans up resources.
    * 
    * Wraps all operations in try-catch for error isolation.
    * 
-   * Validates: Requirements 4.3, 5.3, 7.4, 7.5, 8.3, 8.4, 8.5
+   * Validates: Requirements 2.4, 2.5, 4.3, 5.3, 7.4, 7.5, 8.3, 8.4, 8.5
    */
   private async handleCompletion(context: RequestContext): Promise<void> {
     this.logger.debug('Handling completion', { 
       messageId: context.messageId,
       responseId: context.responseId,
       bufferLength: context.responseBuffer.length,
+      stream: context.stream,
     });
 
     try {
-      // Generate content_part.done event (Requirement 5.3)
-      await this.generateContentPartDoneEvent(context);
-      
-      // Generate response.completed event (Requirement 5.3)
-      await this.generateCompletedEvent(context);
+      // Check if this is streaming or non-streaming mode (Requirement 2.4, 2.5)
+      if (context.stream) {
+        // Streaming mode: send event sequence (Requirement 2.4)
+        
+        // If no chunks were ever received (empty reply), we still need to emit
+        // the protocol preamble events so the client sees a well-formed response.
+        if (!context.firstChunkReceived) {
+          context.firstChunkReceived = true;
+          await this.generateInProgressEvent(context);
+          await this.generateItemAddedEvent(context);
+        }
+
+        // Generate content_part.done event (Requirement 5.3)
+        await this.generateContentPartDoneEvent(context);
+        
+        // Generate response.completed event (Requirement 5.3)
+        await this.generateCompletedEvent(context);
+      } else {
+        // Non-streaming mode: send complete response object (Requirement 2.5)
+        await this.generateCompleteResponse(context);
+      }
       
       // Update context status to 'completed' (Requirement 7.4)
       context.status = 'completed';
@@ -975,6 +1090,7 @@ export class SDKDispatcher {
         responseId: context.responseId,
         responseLength: context.responseBuffer.length,
         duration: Date.now() - context.requestTimestamp,
+        stream: context.stream,
       });
       
     } catch (error) {

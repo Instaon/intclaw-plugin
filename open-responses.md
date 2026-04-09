@@ -1,394 +1,397 @@
-- 传输方式：服务端与插件之间通过 WebSocket 进行双向异步通信。事件语义遵循 Open Responses 规范。
-- 事件粒度：所有流式行为都映射为“语义事件”，而不是原始 token/字节片段，例如 `response.in_progress`、`response.output_text.delta` 等。
-- 终止信号：当整个响应生命周期结束后，服务端应发送最终状态事件（如 `response.completed` / `response.failed`）。
+# Open Responses over WebSocket
 
-***
+本文档定义 `/ws/chat` 使用的业务消息格式。WebSocket 上传输的内容是**标准 JSON 对象本身**，不再额外包一层 `MESSAGE / headers / data` envelope。
 
-## 2. 顶层 Response 对象（静态模型）
+## 1. 总览
 
-服务器内部可以维护一个顶层 Response 状态对象，事件都是对其的增量变更。一个典型结构示例（伪 JSON Schema）： [community.openai](https://community.openai.com/t/open-responses-for-the-open-source-community/1371770)
+- 用户侧发送：标准 request 对象。
+- 助手侧发送：标准 `response.*` 流式事件，或完整 `response` 对象。
+- 会话路由：统一使用 `metadata.session_id`。
+- MQ 路由：网关会把 `session_id`、`sender_id`、`sender_type` 等路由元数据封装到 MQ 消息中，但这些字段不是 WebSocket 业务协议的一部分。
+
+## 2. 用户请求对象
+
+### 2.1 完整请求示例
+
+```json
+{
+  "model": "your-model",
+  "stream": true,
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "你好，介绍一下你自己"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "session_id": "sess_123456"
+  }
+}
+```
+
+### 2.2 字段说明
+
+- `model`: 目标模型标识。由调用方决定具体值。
+- `stream`: 是否要求流式返回。
+  - `true`: 期望收到一系列 `response.*` 事件。
+  - `false`: 期望收到完整 `response` 对象。
+- `input`: 输入数组。当前对话消息应放在这个数组里。
+- `metadata`: 扩展元数据。
+- `metadata.session_id`: 当前消息所属会话 ID。`/ws/chat` 路由必填。
+
+## 3. Input Item 结构
+
+`input` 数组中的每一项都是一个输入 item。最常见的是 `message`。
+
+### 3.1 message item 示例
+
+```json
+{
+  "type": "message",
+  "role": "user",
+  "content": [
+    {
+      "type": "input_text",
+      "text": "你好，介绍一下你自己"
+    }
+  ]
+}
+```
+
+### 3.2 字段说明
+
+- `type`: item 类型。普通用户消息使用 `"message"`。
+- `role`: 发送者角色。用户输入固定为 `"user"`。
+- `content`: 内容分片数组。
+
+### 3.3 input_text part 示例
+
+```json
+{
+  "type": "input_text",
+  "text": "你好，介绍一下你自己"
+}
+```
+
+字段说明：
+
+- `type`: 输入内容类型。文本输入使用 `"input_text"`。
+- `text`: 用户输入的文本内容。
+
+## 4. 非流式输出对象
+
+当请求中的 `stream` 为 `false` 时，助手侧可以直接返回完整 `response` 对象。
+
+### 4.1 完整响应示例
 
 ```json
 {
   "id": "resp_123",
-  "status": "in_progress",
-  "output": {
-    "items": [
-      {
-        "id": "item_1",
-        "type": "message",
-        "status": "in_progress",
-        "role": "assistant",
-        "content": [
-          {
-            "type": "output_text",
-            "status": "in_progress",
-            "text": ""
-          }
-        ]
-      }
-    ]
-  },
-  "error": null,
-  "metadata": {}
+  "object": "response",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "你好，我是一个 AI 助手。"
+        }
+      ]
+    }
+  ],
+  "output_text": "你好，我是一个 AI 助手。",
+  "metadata": {
+    "session_id": "sess_123456"
+  }
 }
 ```
 
-字段说明： [community.openai](https://community.openai.com/t/open-responses-for-the-open-source-community/1371770)
-- `id`: Response 全局唯一 ID，由你的服务生成。  
-- `status`: 响应整体状态，典型值：`"queued"`, `"in_progress"`, `"completed"`, `"failed"`, `"incomplete"`。  
-- `output.items[]`: 输出条目列表，每个条目就是一个 Item（消息、工具调用、推理过程等）。  
-- `error`: 失败时的错误信息。  
-- `metadata`: 扩展字段，可放 trace id 等。
+### 4.2 字段说明
 
-***
+- `id`: response 全局唯一 ID。
+- `object`: 固定为 `"response"`。
+- `status`: 响应状态。成功完成时为 `"completed"`。
+- `output`: 输出 item 数组。
+- `output_text`: 文本输出的聚合结果，便于直接消费。
+- `metadata`: 扩展元数据。
+- `metadata.session_id`: 响应所属会话 ID。
 
-## 3. Item 对象结构
+## 5. 输出 Item 结构
 
-Item 是响应输出的基本单元，每个 Item 有自己独立的生命周期。 [jangwook](https://jangwook.net/zh/blog/zh/openai-open-responses-agentic-standard/)
+### 5.1 assistant message 示例
 
 ```json
 {
-  "id": "item_1",
   "type": "message",
-  "status": "in_progress",
   "role": "assistant",
   "content": [
     {
       "type": "output_text",
-      "status": "in_progress",
-      "text": ""
+      "text": "你好，我是一个 AI 助手。"
     }
   ]
 }
 ```
 
-公共字段： [openresponses](https://www.openresponses.org/specification)
-- `id`: item 唯一 ID。  
-- `type`:  
-  - `"message"`：普通对话消息。  
-  - `"function_call"`：工具调用。  
-  - `"function_call_output"`：工具返回。  
-  - `"reasoning"`：可选的可见推理内容。  
-- `status`: `"in_progress"`, `"completed"`, `"incomplete"`, `"failed"` 等。  
-- `content[]`: 内容分片列表（常见是 `output_text`）。
+字段说明：
 
-示例：`message` 类型。 [jangwook](https://jangwook.net/zh/blog/zh/openai-open-responses-agentic-standard/)
+- `type`: item 类型。普通回答使用 `"message"`。
+- `role`: 输出角色。助手输出固定为 `"assistant"`。
+- `content`: 输出内容分片数组。
 
-```json
-{
-  "id": "item_1",
-  "type": "message",
-  "role": "assistant",
-  "status": "in_progress",
-  "content": [
-    {
-      "type": "output_text",
-      "status": "in_progress",
-      "text": ""
-    }
-  ]
-}
-```
-
-***
-
-## 4. Content Part 结构
-
-Content Part 是 Item 里的更细粒度结构，比如文本的一段。 [community.openai](https://community.openai.com/t/open-responses-for-the-open-source-community/1371770)
+### 5.2 output_text part 示例
 
 ```json
 {
   "type": "output_text",
-  "status": "in_progress",
-  "text": "",
-  "annotations": [],
-  "logprobs": null
+  "text": "你好，我是一个 AI 助手。"
 }
 ```
 
-字段说明： [openresponses](https://www.openresponses.org/specification)
-- `type`: 对于模型输出常见为 `"output_text"`。  
-- `status`: 典型值 `"in_progress"` / `"completed"`；用于在流式结束时标记本段内容已写完。  
-- `text`: 当前累计文本。  
-- `annotations` / `logprobs`: 可选元数据。
+字段说明：
 
-***
+- `type`: 输出内容类型。文本输出使用 `"output_text"`。
+- `text`: 当前完整文本内容。
 
-事件是你真正通过 WebSocket 推送给客户端的“消息”。为了保证协议对称性，每个事件都作为 `data` 字符串嵌套在标准的 WebSocket Envelope 中。
+## 6. 流式输出事件
 
-常用事件类别：
+当请求中的 `stream` 为 `true` 时，助手侧通过一系列 `response.*` 事件持续输出。
 
-- 状态机事件（State events）  
-  - `response.in_progress`  
-  - `response.completed`  
-  - `response.failed`  
-- 结构变更事件（Structure events）  
-  - `response.output_item.added`  
-- 内容增量事件（Delta events）  
-  - `response.output_text.delta`  
-  - 可选：`response.content_part.done`（内容片段完成） [openresponses](https://www.openresponses.org/specification)
+### 6.1 response.created
 
-***
-
-## 6. 事件字段定义
-
-下面用“事件类型 + data JSON”的形式描述协议字段。所有事件的 `data` 都应至少包含 `response_id`，用于客户端关联。 [github](https://github.com/vinhnx/VTCode/blob/main/docs/protocols/OPEN_RESPONSES.md)
-
-### 6.1 response.in_progress
-
-表示 Response 从 `queued` 进入 `in_progress`。 [openresponses](https://www.openresponses.org/specification)
+表示响应已创建，客户端可以用它初始化 response 状态。
 
 ```json
 {
-  "type": "response.in_progress",
-  "response_id": "resp_123",
-  "status": "in_progress",
-  "timestamp": "2026-03-25T08:00:00Z"
-}
-```
-
-- `status`: 必须为 `"in_progress"`。  
-- 触发时机：模型开始实际生成内容前或第一个 token 产生时。
-
-### 6.2 response.output_item.added
-
-表示一个新的 Item 被加入到输出中（比如开始生成一条 assistant 消息）。 [docs.openclaw](https://docs.openclaw.ai/experiments/plans/openresponses-gateway)
-
-```json
-{
-  "type": "response.output_item.added",
-  "response_id": "resp_123",
-  "item": {
-    "id": "item_1",
-    "type": "message",
+  "type": "response.created",
+  "response": {
+    "id": "resp_123",
+    "object": "response",
     "status": "in_progress",
-    "role": "assistant",
-    "content": [
-      {
-        "type": "output_text",
-        "status": "in_progress",
-        "text": ""
-      }
-    ]
-  },
-  "index": 0,
-  "timestamp": "2026-03-25T08:00:01Z"
+    "metadata": {
+      "session_id": "sess_123456"
+    }
+  }
 }
 ```
 
-- `item`: 完整的 Item 初始结构。  
-- `index`: 该 Item 在 `output.items` 中的位置。  
-- 客户端应创建本地 Item 并加入列表。
+字段说明：
 
-### 6.3 response.output_text.delta
+- `type`: 固定为 `"response.created"`。
+- `response`: 顶层 response 对象的初始快照。
+- `response.id`: response ID。
+- `response.object`: 固定为 `"response"`。
+- `response.status`: 初始状态，通常为 `"in_progress"`。
+- `response.metadata.session_id`: 会话 ID。
 
-这是流式文本生成的核心事件，用来追加文本内容。 [docs.openclaw](https://docs.openclaw.ai/experiments/plans/openresponses-gateway)
+### 6.2 response.output_text.delta
+
+表示一段文本增量。
 
 ```json
 {
   "type": "response.output_text.delta",
   "response_id": "resp_123",
-  "item_id": "item_1",
-  "content_index": 0,
-  "delta": {
-    "text": "Hello, "
-  },
-  "timestamp": "2026-03-25T08:00:02Z"
+  "delta": "你好，"
 }
 ```
 
-字段说明： [docs.openclaw](https://docs.openclaw.ai/experiments/plans/openresponses-gateway)
-- `item_id`: 要更新的 Item。  
-- `content_index`: Item.content 数组里要更新的那个 part 下标。  
-- `delta.text`: 增量文本（追加到现有 `text` 之后）。  
+字段说明：
 
-客户端更新逻辑等价于：
+- `type`: 固定为 `"response.output_text.delta"`。
+- `response_id`: 所属 response ID。
+- `delta`: 本次新增的文本片段。
 
-```ts
-items[item_id].content[content_index].text += delta.text;
-```
+### 6.3 response.output_text.done
 
-后续多次发送不同 `delta`，直到文本生成完成。 [openresponses](https://www.openresponses.org/specification)
-
-### 6.4 response.content_part.done（可选）
-
-可选：标记某个 content part 已完成，不再有新的 delta。 [openresponses](https://www.openresponses.org/specification)
+表示文本输出已完成。
 
 ```json
 {
-  "type": "response.content_part.done",
+  "type": "response.output_text.done",
   "response_id": "resp_123",
-  "item_id": "item_1",
-  "content_index": 0,
-  "status": "completed",
-  "timestamp": "2026-03-25T08:00:03Z"
+  "text": "你好，我是一个 AI 助手。"
 }
 ```
 
-- `status`: 一般为 `"completed"`。  
-- 客户端可将对应 content part 的状态更新为完成。
+字段说明：
 
-### 6.5 response.completed
+- `type`: 固定为 `"response.output_text.done"`。
+- `response_id`: 所属 response ID。
+- `text`: 最终完整文本。
 
-表示整个 Response 已成功完成，不会再有新的 Items 或 delta。 [docs.openclaw](https://docs.openclaw.ai/experiments/plans/openresponses-gateway)
+### 6.4 response.completed
+
+表示整个流式响应已经完成。
 
 ```json
 {
   "type": "response.completed",
-  "response_id": "resp_123",
-  "status": "completed",
-  "timestamp": "2026-03-25T08:00:04Z"
+  "response": {
+    "id": "resp_123",
+    "object": "response",
+    "status": "completed",
+    "output": [
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "你好，我是一个 AI 助手。"
+          }
+        ]
+      }
+    ],
+    "output_text": "你好，我是一个 AI 助手。",
+    "metadata": {
+      "session_id": "sess_123456"
+    }
+  }
 }
 ```
 
-- 服务端应在发送该事件后适时关闭流。  
-- 客户端将顶层 Response.status 更新为 `"completed"`。
+字段说明：
 
-### 6.6 response.failed
+- `type`: 固定为 `"response.completed"`。
+- `response`: 完整的最终 response 对象。
+- `response.status`: 固定为 `"completed"`。
+- `response.output`: 最终输出数组。
+- `response.output_text`: 最终文本。
+- `response.metadata.session_id`: 所属会话 ID。
 
-当响应过程中出现不可恢复错误时发送。 [openresponses](https://www.openresponses.org/specification)
+### 6.5 response.failed
+
+表示响应失败。
 
 ```json
 {
   "type": "response.failed",
-  "response_id": "resp_123",
-  "status": "failed",
-  "error": {
-    "code": "MODEL_ERROR",
-    "message": "Upstream model provider failed",
-    "details": null
-  },
-  "timestamp": "2026-03-25T08:00:05Z"
+  "response": {
+    "id": "resp_123",
+    "object": "response",
+    "status": "failed",
+    "error": {
+      "code": "model_error",
+      "message": "Upstream model provider failed"
+    },
+    "metadata": {
+      "session_id": "sess_123456"
+    }
+  }
 }
 ```
 
-- `status`: `"failed"`。  
-- `error`: 标准化错误对象。  
-- 发送后应终结连接；客户端更新整体状态为失败。
+字段说明：
 
-***
+- `type`: 固定为 `"response.failed"`。
+- `response.status`: 固定为 `"failed"`。
+- `response.error`: 失败信息。
+- `response.error.code`: 错误码。
+- `response.error.message`: 错误描述。
+- `response.metadata.session_id`: 所属会话 ID。
 
-## 7. WebSocket 传输封装示例
+## 7. 完整交互示例
 
-在 WebSocket 链路上，每一个 Open Responses 事件都需要按照**对称协议**进行封装。`data` 字段必须是事件对象的 JSON 字符串。
+### 7.1 一问一答
 
-### 7.1 单个事件封装示例 (以 Delta 为例)
+请求：
 
 ```json
 {
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_001",
-    "topic": "/v1.0/im/bot/messages"
-  },
-  "data": "{\"type\":\"response.output_text.delta\",\"response_id\":\"resp_123\",\"item_id\":\"item_1\",\"content_index\":0,\"delta\":{\"text\":\"Hello\"}}"
+  "model": "your-model",
+  "stream": false,
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "你好，介绍一下你自己"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "session_id": "sess_123456"
+  }
 }
 ```
 
-### 7.2 连续事件流示意
-
-在一个完整的响应周期内，WebSocket 会连续推送多个此类 Envelope 包：
-
-1.  **开始**：发送 `response.in_progress`。
-2.  **结构**：发送 `response.output_item.added`。
-3.  **内容**：连续发送多个 `response.output_text.delta`。
-4.  **结束**：发送 `response.completed`。
-
-这种方式确保了无论信标中承载的是什么业务逻辑，外层的路由和处理逻辑都是高度统一且对称的。
-
-***
-
-## 8. 推荐的状态机约束
-
-为了保持行为与 Open Responses 生态兼容，建议遵守以下约束： [community.openai](https://community.openai.com/t/open-responses-for-the-open-source-community/1371770)
-
-- 顶层 Response 状态流转：  
-  - `queued` → `in_progress` → `completed`  
-  - 或 `queued` / `in_progress` → `failed` / `incomplete`。  
-- 若 Response 终态为 `"incomplete"`，最后一个 Item 也必须是 `"incomplete"`。  
-- Item 状态流转同样遵循 `in_progress` → `completed` / `failed` / `incomplete`。  
-- 所有 delta 类事件必须在对应对象的终态事件之前（如 `response.output_text.delta` 必须在 `response.content_part.done` 前）。  
-
-***
-
-## 9. 完整的一问一答交互示例
-
-以下是严格按照协议的真实 JSON 数据包格式。
-
-### 9.1 客户端发送（一问）
-客户端发给服务端的 WebSocket JSON 数据：
+响应：
 
 ```json
 {
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_req_001",
-    "topic": "/v1.0/im/user/messages"
-  },
-  "data": "{\"content\":\"你好呀\"}"
+  "id": "resp_123",
+  "object": "response",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "你好，我是一个 AI 助手。"
+        }
+      ]
+    }
+  ],
+  "output_text": "你好，我是一个 AI 助手。",
+  "metadata": {
+    "session_id": "sess_123456"
+  }
 }
 ```
 
-### 9.2 服务端返回（一答）
-服务端通过 WebSocket 陆续吐出以下 5 个 JSON 数据帧：
+### 7.2 一问一答（流式）
 
-**第 1 帧**：准备开始处理
+请求：
+
 ```json
 {
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_res_001",
-    "topic": "/v1.0/im/bot/messages"
-  },
-  "data": "{\"type\":\"response.in_progress\",\"response_id\":\"resp_123\",\"status\":\"in_progress\",\"timestamp\":\"2026-03-31T10:00:00Z\"}"
+  "model": "your-model",
+  "stream": true,
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "你好，介绍一下你自己"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "session_id": "sess_123456"
+  }
 }
 ```
 
-**第 2 帧**：初始化消息结构
+响应事件流：
+
 ```json
-{
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_res_002",
-    "topic": "/v1.0/im/bot/messages"
-  },
-  "data": "{\"type\":\"response.output_item.added\",\"response_id\":\"resp_123\",\"item\":{\"id\":\"item_1\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"status\":\"in_progress\",\"text\":\"\"}]},\"index\":0,\"timestamp\":\"2026-03-31T10:00:01Z\"}"
-}
+{"type":"response.created","response":{"id":"resp_123","object":"response","status":"in_progress","metadata":{"session_id":"sess_123456"}}}
+{"type":"response.output_text.delta","response_id":"resp_123","delta":"你好，"}
+{"type":"response.output_text.delta","response_id":"resp_123","delta":"我是一个 AI 助手。"}
+{"type":"response.output_text.done","response_id":"resp_123","text":"你好，我是一个 AI 助手。"}
+{"type":"response.completed","response":{"id":"resp_123","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"你好，我是一个 AI 助手。"}]}],"output_text":"你好，我是一个 AI 助手。","metadata":{"session_id":"sess_123456"}}}
 ```
 
-**第 3 帧**：增量返回文本 “你也”
-```json
-{
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_res_003",
-    "topic": "/v1.0/im/bot/messages"
-  },
-  "data": "{\"type\":\"response.output_text.delta\",\"response_id\":\"resp_123\",\"item_id\":\"item_1\",\"content_index\":0,\"delta\":{\"text\":\"你也\"},\"timestamp\":\"2026-03-31T10:00:02Z\"}"
-}
-```
+## 8. `/ws/chat` 路由约束
 
-**第 4 帧**：增量返回文本 “好”
-```json
-{
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_res_004",
-    "topic": "/v1.0/im/bot/messages"
-  },
-  "data": "{\"type\":\"response.output_text.delta\",\"response_id\":\"resp_123\",\"item_id\":\"item_1\",\"content_index\":0,\"delta\":{\"text\":\"好\"},\"timestamp\":\"2026-03-31T10:00:03Z\"}"
-}
-```
-
-**第 5 帧**：结束本次响应
-```json
-{
-  "type": "MESSAGE",
-  "headers": {
-    "messageId": "msg_res_005",
-    "topic": "/v1.0/im/bot/messages"
-  },
-  "data": "{\"type\":\"response.completed\",\"response_id\":\"resp_123\",\"status\":\"completed\",\"timestamp\":\"2026-03-31T10:00:04Z\"}"
-}
-```
+- 用户输入请求必须携带 `metadata.session_id`。
+- 助手输出事件应尽量在 `response.created` 或 `response.completed.response.metadata` 中携带 `session_id`。
+- 对于中间流式事件，如果没有重复带 `metadata.session_id`，网关会基于 `response_id` 关联到已知会话。
+- 不再支持旧的 `MESSAGE / headers / data` 包装作为标准协议格式。

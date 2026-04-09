@@ -273,6 +273,7 @@ export interface InboundMessageContent {
 
 /**
  * Parsed request context — enriched by the gateway from envelope headers
+ * Updated to support standard protocol format (open-responses.md)
  */
 export interface RequestContent {
   /** User message content */
@@ -281,6 +282,12 @@ export interface RequestContent {
   messageId: string;
   /** Topic from envelope.headers.topic */
   topic: string;
+  /** Session identifier from request metadata.session_id */
+  sessionId: string;
+  /** Streaming flag from request.stream */
+  stream: boolean;
+  /** Model identifier from request.model (optional) */
+  model?: string;
   /** Any additional header values */
   [key: string]: any;
 }
