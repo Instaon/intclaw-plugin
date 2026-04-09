@@ -144,7 +144,7 @@ export class WebSocketConnection {
 
       // Register connection for outbound messages
       if (accountId) {
-        const { registerConnection } = await import('./channel');
+        const { registerConnection } = await import('./channel.js');
         registerConnection(accountId, this.ws);
         this.logger.debug('Registered WebSocket connection', { accountId });
       }
@@ -291,7 +291,7 @@ export class WebSocketConnection {
     // Unregister connection for outbound messages
     if (accountId) {
       try {
-        const { unregisterConnection } = await import('./channel');
+        const { unregisterConnection } = await import('./channel.js');
         unregisterConnection(accountId);
         this.logger.debug('Unregistered WebSocket connection', { accountId });
       } catch (error) {
@@ -612,10 +612,10 @@ export async function monitorInstaClawProvider(
   channelRuntime?: any
 ): Promise<void> {
   // Import dependencies
-  const { parseEnvelope } = await import('./protocol');
-  const { DebugLogger } = await import('./logger');
-  const { WS_URL, HEARTBEAT_INTERVAL, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config');
-  const { SDKDispatcher } = await import('./sdk-dispatcher');
+  const { parseEnvelope } = await import('./protocol.js');
+  const { DebugLogger } = await import('./logger.js');
+  const { WS_URL, HEARTBEAT_INTERVAL, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config.js');
+  const { SDKDispatcher } = await import('./sdk-dispatcher.js');
   
   // Extract plugin configuration
   const config = cfg.channels?.["insta-claw-connector"];
@@ -694,15 +694,21 @@ export async function monitorInstaClawProvider(
         parseRequest,
         parseEnvelope,
         TOPIC_USER_MESSAGES,
-      } = await import('./protocol');
+      } = await import('./protocol.js');
 
       // Peek at the Envelope to read the topic and type for routing
       let topic: string | undefined;
       let envelopeType: string | undefined;
       try {
         const peek = JSON.parse(rawMessage);
-        topic = peek?.headers?.topic;
-        envelopeType = peek?.type;
+        
+        // Check if it's a standard request without envelope (open-responses.md format)
+        if (peek && typeof peek === 'object' && Array.isArray(peek.input) && peek.metadata && !peek.headers) {
+          topic = TOPIC_USER_MESSAGES;
+        } else {
+          topic = peek?.headers?.topic;
+          envelopeType = peek?.type;
+        }
       } catch (parseError) {
         // Parse error handling (Requirement 2.4, 18.1)
         // Log parse errors without crashing, continue processing other messages
