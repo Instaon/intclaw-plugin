@@ -434,6 +434,7 @@ export class WebSocketConnection {
     // Check max reconnection attempts
     if (
       this.config.reconnectMaxAttempts !== undefined &&
+      this.config.reconnectMaxAttempts > 0 &&
       this.reconnectAttempts >= this.config.reconnectMaxAttempts
     ) {
       this.logger.warn('Max reconnection attempts reached', {
@@ -614,7 +615,7 @@ export async function monitorInstaClawProvider(
   // Import dependencies
   const { parseEnvelope } = await import('./protocol.js');
   const { DebugLogger } = await import('./logger.js');
-  const { WS_URL, HEARTBEAT_INTERVAL, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config.js');
+  const { WS_URL, HEARTBEAT_INTERVAL, MAX_RECONNECT_ATTEMPTS, SDK_REQUEST_TIMEOUT, MAX_CONCURRENT_REQUESTS } = await import('./config.js');
   const { SDKDispatcher } = await import('./sdk-dispatcher.js');
   
   // Extract plugin configuration
@@ -964,7 +965,7 @@ export async function monitorInstaClawProvider(
     clientSecret: config.clientSecret,
     enabled: config.enabled !== false, // Default to true when not explicitly set
     heartbeatInterval: HEARTBEAT_INTERVAL,
-    reconnectMaxAttempts: 0, // Infinite reconnection
+    reconnectMaxAttempts: MAX_RECONNECT_ATTEMPTS, // 0 means infinite reconnection
   };
   
   // Create WebSocket connection manager

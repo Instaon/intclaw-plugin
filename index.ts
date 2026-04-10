@@ -10,6 +10,8 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk';
 import { instaClawPlugin } from './channel';
 
+import { artifactUploadTool } from './artifact-upload';
+
 /**
  * Plugin registration function
  * 
@@ -24,6 +26,9 @@ import { instaClawPlugin } from './channel';
 export default function register(api: OpenClawPluginApi): void {
   // Register the ChannelPlugin with OpenClaw
   api.registerChannel({ plugin: instaClawPlugin });
+  
+  // Register the artifact upload tool
+  api.registerTool(artifactUploadTool, { optional: false });
   
   console.log('[InstaClawConnector] Plugin registered successfully');
 }
