@@ -213,7 +213,7 @@ export class SDKDispatcher {
       
       // Generate failed event for invalid request
       const responseId = this.generateResponseId();
-      await this.sendFailedEvent(ws, responseId, 'INVALID_REQUEST', 'Request content must be a non-empty string');
+      await this.sendFailedEvent(ws, responseId, 'INVALID_REQUEST', 'Request content must be a non-empty string', request.sessionId);
       return;
     }
 
@@ -228,7 +228,7 @@ export class SDKDispatcher {
       
       // Generate failed event for rate limit
       const responseId = this.generateResponseId();
-      await this.sendFailedEvent(ws, responseId, 'RATE_LIMIT', 'Maximum concurrent requests exceeded');
+      await this.sendFailedEvent(ws, responseId, 'RATE_LIMIT', 'Maximum concurrent requests exceeded', request.sessionId);
       return;
     }
 
@@ -345,10 +345,11 @@ export class SDKDispatcher {
     ws: WebSocket,
     responseId: string,
     code: string,
-    message: string
+    message: string,
+    sessionId?: string
   ): Promise<void> {
     try {
-      const failedEvent = createFailedEvent(responseId, code, message);
+      const failedEvent = createFailedEvent(responseId, code, message, null, sessionId);
       const envelope = createEnvelope(failedEvent);
       
       if (ws.readyState === 1) { // WebSocket.OPEN
@@ -955,7 +956,7 @@ export class SDKDispatcher {
     details?: any
   ): Promise<void> {
     try {
-      const event = createFailedEvent(context.responseId, code, message, details);
+      const event = createFailedEvent(context.responseId, code, message, details, context.sessionId);
       const envelope = createEnvelope(event);
       
       if (context.ws.readyState === 1) { // WebSocket.OPEN

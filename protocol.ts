@@ -289,15 +289,22 @@ export function createFailedEvent(
   responseId: string,
   code: string,
   message: string,
-  details: any = null
+  details: any = null,
+  sessionId?: string
 ): ResponseFailedEvent {
-  return {
+  const event: ResponseFailedEvent = {
     type: 'response.failed',
     response_id: responseId,
     status: 'failed',
     error: { code, message, details },
     timestamp: isoNow(),
   };
+
+  if (sessionId) {
+    (event as any).metadata = { session_id: sessionId };
+  }
+
+  return event;
 }
 
 /**
