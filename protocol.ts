@@ -70,6 +70,97 @@ export function buildSessionId(userId: string | number, channelId: string | numb
 // ============================================================================
 
 /**
+ * Extract and concatenate content from the input array.
+ *
+ * Iterates over all input items (typically {type: "message", role: "user", content: [...]}).
+ * For each content part, the following types are handled:
+ *
+ *   - input_text  → The plain text is appended directly.
+ *   - input_file  → Rendered as a Markdown link: [filename](file_url)
+ *   - input_image → Rendered as a Markdown image: ![filename](image_url)
+ *   - (unknown)   → Silently skipped.
+ *
+ * Multiple parts within the same message are separated by a blank line.
+ * Multiple input messages are separated by a horizontal rule (`---`).
+ *
+ * Example output for a mixed input containing a file + text:
+ *
+ *   [demo.pdf](https://example.com/demo.pdf)
+ *
+ *   > 总结这个文件
+ *
+ * @param input - The parsed `input` array from the request
+ * @returns Concatenated Markdown string, or empty string if no content found
+ */
+export function extractContentFromInput(input: any[]): string {
+  const messageParts: string[] = [];
+
+  for (const item of input) {
+    // Only handle message items with a content array
+    if (!item || !Array.isArray(item.content) || item.content.length === 0) {
+      continue;
+    }
+
+    const parts: string[] = [];
+
+    for (const part of item.content) {
+      if (!part || typeof part !== 'object') continue;
+
+      switch (part.type) {
+        case 'input_text': {
+          const text = part.text;
+          if (text && typeof text === 'string' && text.trim() !== '') {
+            // Render as a Markdown blockquote to visually separate user speech
+            parts.push(`> ${text}`);
+          }
+          break;
+        }
+
+        case 'input_file': {
+          // Render as Markdown link: [filename](file_url)
+          const filename = (part.filename && typeof part.filename === 'string')
+            ? part.filename
+            : 'file';
+          const fileUrl = part.file_url || part.url || '';
+          if (fileUrl && typeof fileUrl === 'string') {
+            parts.push(`[${filename}](${fileUrl})`);
+          } else if (part.file_id && typeof part.file_id === 'string') {
+            // No URL available — fall back to referencing by file_id
+            parts.push(`[${filename}](file:${part.file_id})`);
+          }
+          break;
+        }
+
+        case 'input_image': {
+          // Render as Markdown image: ![filename](image_url)
+          const filename = (part.filename && typeof part.filename === 'string')
+            ? part.filename
+            : 'image';
+          const imageUrl = part.image_url || part.url || '';
+          if (imageUrl && typeof imageUrl === 'string') {
+            parts.push(`![${filename}](${imageUrl})`);
+          } else if (part.file_id && typeof part.file_id === 'string') {
+            parts.push(`![${filename}](file:${part.file_id})`);
+          }
+          break;
+        }
+
+        default:
+          // Unknown content type — skip silently to stay forward-compatible
+          break;
+      }
+    }
+
+    if (parts.length > 0) {
+      messageParts.push(parts.join('\n\n'));
+    }
+  }
+
+  // Join multiple input messages with a Markdown horizontal rule
+  return messageParts.join('\n\n---\n\n');
+}
+
+/**
  * Parse an inbound standard request object from the WebSocket.
  *
  * Per open-responses.md specification, the server sends standard request objects:
@@ -89,18 +180,13 @@ export function parseRequest(rawMessage: string): RequestContent {
       throw new Error('Invalid request: missing or empty input array');
     }
 
-    const firstInput = request.input[0];
-    if (!firstInput.content || !Array.isArray(firstInput.content) || firstInput.content.length === 0) {
-      throw new Error('Invalid request: missing or empty content array in input[0]');
-    }
+    // Extract and concatenate content from all input messages and all content parts
+    // Supports: input_text (plain text), input_file (Markdown link), input_image (Markdown image)
+    const content = extractContentFromInput(request.input);
 
-    const firstContent = firstInput.content[0];
-    if (!firstContent.text || typeof firstContent.text !== 'string') {
-      throw new Error('Invalid request: missing or non-string text field in input[0].content[0]');
+    if (!content || content.trim() === '') {
+      throw new Error('Invalid request: no extractable content found in input array (supported types: input_text, input_file, input_image)');
     }
-
-    // Extract fields from standard request format
-    const content = firstContent.text;
 
     // Extract session_id directly from metadata (Requirement 1.1, 2.7)
     // server sends metadata.session_id; fallback to a generated ID if absent

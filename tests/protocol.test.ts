@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseEnvelope,
   parseRequest,
+  extractContentFromInput,
   createEnvelope,
   createInProgressEvent,
   createOutputItemAddedEvent,
@@ -115,48 +116,257 @@ describe('Protocol Module', () => {
   // Request Parsing — inbound user messages (Task 4.1 / §9.1)
   // ───────────────────────────────────────────────────────────────────────────
   describe('Request Parsing — parseRequest (§9.1)', () => {
-    it('should parse valid user message envelope', () => {
+    it('should parse standard request with single input_text', () => {
       const raw = JSON.stringify({
-        type: 'MESSAGE',
-        headers: { messageId: 'msg_req_001', topic: TOPIC_USER_MESSAGES },
-        data: JSON.stringify({ content: '你好呀' }),
+        model: 'test-model',
+        stream: true,
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: '你好呀' }],
+          },
+        ],
+        metadata: { session_id: 'sess_001', message_id: 'msg_req_001' },
       });
 
       const req = parseRequest(raw);
 
-      expect(req.content).toBe('你好呀');
+      expect(req.content).toBe('> 你好呀');
       expect(req.messageId).toBe('msg_req_001');
+      expect(req.sessionId).toBe('sess_001');
+      expect(req.stream).toBe(true);
+      expect(req.model).toBe('test-model');
       expect(req.topic).toBe(TOPIC_USER_MESSAGES);
     });
 
-    it('should throw error for wrong envelope type', () => {
+    it('should parse request with input_file + input_text and concatenate with Markdown', () => {
       const raw = JSON.stringify({
-        type: 'message',
-        headers: { messageId: 'x', topic: TOPIC_USER_MESSAGES },
-        data: JSON.stringify({ content: 'hi' }),
+        model: 'test-model',
+        stream: false,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_file', file_url: 'https://example.com/demo.pdf', filename: 'demo.pdf' },
+              { type: 'input_text', text: '总结这个文件' },
+            ],
+          },
+        ],
+        metadata: { session_id: 'sess_002' },
       });
 
-      expect(() => parseRequest(raw)).toThrow('"MESSAGE"');
+      const req = parseRequest(raw);
+
+      expect(req.content).toBe('[demo.pdf](https://example.com/demo.pdf)\n\n> 总结这个文件');
+      expect(req.stream).toBe(false);
     });
 
-    it('should throw error for missing content in data', () => {
+    it('should parse request with input_image using Markdown image syntax', () => {
       const raw = JSON.stringify({
-        type: 'MESSAGE',
-        headers: { messageId: 'x', topic: TOPIC_USER_MESSAGES },
-        data: JSON.stringify({ foo: 'bar' }),
+        stream: true,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_image', image_url: 'https://example.com/photo.jpg', filename: 'photo.jpg' },
+              { type: 'input_text', text: '这张图里有什么?' },
+            ],
+          },
+        ],
+        metadata: { session_id: 'sess_003' },
       });
 
-      expect(() => parseRequest(raw)).toThrow('content');
+      const req = parseRequest(raw);
+
+      expect(req.content).toBe('![photo.jpg](https://example.com/photo.jpg)\n\n> 这张图里有什么?');
     });
 
-    it('should throw error for missing messageId in headers', () => {
+    it('should concatenate multiple input messages with horizontal rule separator', () => {
       const raw = JSON.stringify({
-        type: 'MESSAGE',
-        headers: { topic: TOPIC_USER_MESSAGES },
-        data: JSON.stringify({ content: 'hi' }),
+        stream: true,
+        input: [
+          { role: 'user', content: [{ type: 'input_text', text: '第一条消息' }] },
+          { role: 'user', content: [{ type: 'input_text', text: '第二条消息' }] },
+        ],
+        metadata: { session_id: 'sess_004' },
       });
 
-      expect(() => parseRequest(raw)).toThrow('messageId');
+      const req = parseRequest(raw);
+
+      expect(req.content).toBe('> 第一条消息\n\n---\n\n> 第二条消息');
+    });
+
+    it('should use file_id as fallback URL when file_url is absent', () => {
+      const raw = JSON.stringify({
+        stream: true,
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_file', file_id: 'fid_abc123', filename: 'report.pdf' }],
+          },
+        ],
+        metadata: { session_id: 'sess_005' },
+      });
+
+      const req = parseRequest(raw);
+
+      expect(req.content).toBe('[report.pdf](file:fid_abc123)');
+    });
+
+    it('should skip unknown content types gracefully', () => {
+      const raw = JSON.stringify({
+        stream: true,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'unknown_type', data: 'ignored' },
+              { type: 'input_text', text: '这段文本应该被保留' },
+            ],
+          },
+        ],
+        metadata: { session_id: 'sess_006' },
+      });
+
+      const req = parseRequest(raw);
+
+      expect(req.content).toBe('> 这段文本应该被保留');
+    });
+
+    it('should generate sessionId when metadata.session_id is absent', () => {
+      const raw = JSON.stringify({
+        stream: true,
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+      });
+
+      const req = parseRequest(raw);
+
+      expect(req.sessionId).toMatch(/^msg_/);
+    });
+
+    it('should default stream to true when field is absent', () => {
+      const raw = JSON.stringify({
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        metadata: { session_id: 'sess_007' },
+      });
+
+      const req = parseRequest(raw);
+
+      expect(req.stream).toBe(true);
+    });
+
+    it('should throw error for missing input array', () => {
+      const raw = JSON.stringify({ model: 'test', metadata: { session_id: 'x' } });
+
+      expect(() => parseRequest(raw)).toThrow('missing or empty input array');
+    });
+
+    it('should throw error when all content parts yield no extractable text', () => {
+      const raw = JSON.stringify({
+        stream: true,
+        input: [{ role: 'user', content: [{ type: 'unknown_type' }] }],
+        metadata: { session_id: 'sess_008' },
+      });
+
+      expect(() => parseRequest(raw)).toThrow('no extractable content');
+    });
+
+    it('should throw descriptive error for invalid JSON', () => {
+      expect(() => parseRequest('not valid json')).toThrow('Failed to parse standard request');
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // extractContentFromInput unit tests
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('extractContentFromInput', () => {
+    it('renders input_text as blockquote', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'input_text', text: 'hello' }] },
+      ]);
+      expect(result).toBe('> hello');
+    });
+
+    it('renders input_file as Markdown link', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'input_file', filename: 'a.pdf', file_url: 'https://x.com/a.pdf' }] },
+      ]);
+      expect(result).toBe('[a.pdf](https://x.com/a.pdf)');
+    });
+
+    it('renders input_image as Markdown image', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'input_image', filename: 'pic.png', image_url: 'https://x.com/pic.png' }] },
+      ]);
+      expect(result).toBe('![pic.png](https://x.com/pic.png)');
+    });
+
+    it('concatenates file + text with blank line separator', () => {
+      const result = extractContentFromInput([
+        {
+          content: [
+            { type: 'input_file', filename: 'demo.pdf', file_url: 'https://example.com/demo.pdf' },
+            { type: 'input_text', text: '总结这个文件' },
+          ],
+        },
+      ]);
+      expect(result).toBe('[demo.pdf](https://example.com/demo.pdf)\n\n> 总结这个文件');
+    });
+
+    it('joins multiple input messages with horizontal rule', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'input_text', text: 'A' }] },
+        { content: [{ type: 'input_text', text: 'B' }] },
+      ]);
+      expect(result).toBe('> A\n\n---\n\n> B');
+    });
+
+    it('uses default filename when filename is absent', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'input_file', file_url: 'https://x.com/doc' }] },
+      ]);
+      expect(result).toBe('[file](https://x.com/doc)');
+    });
+
+    it('falls back to file_id when file_url is absent', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'input_file', filename: 'f.pdf', file_id: 'fid_xyz' }] },
+      ]);
+      expect(result).toBe('[f.pdf](file:fid_xyz)');
+    });
+
+    it('skips unknown types silently', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'magical_type' }, { type: 'input_text', text: 'kept' }] },
+      ]);
+      expect(result).toBe('> kept');
+    });
+
+    it('skips blank text in input_text', () => {
+      const result = extractContentFromInput([
+        {
+          content: [
+            { type: 'input_text', text: '   ' },
+            { type: 'input_text', text: 'non-empty' },
+          ],
+        },
+      ]);
+      expect(result).toBe('> non-empty');
+    });
+
+    it('returns empty string for input with no renderable parts', () => {
+      const result = extractContentFromInput([
+        { content: [{ type: 'unknown' }] },
+      ]);
+      expect(result).toBe('');
+    });
+
+    it('skips items without a content array', () => {
+      const result = extractContentFromInput([
+        { role: 'system' }, // no content array
+        { content: [{ type: 'input_text', text: 'valid' }] },
+      ]);
+      expect(result).toBe('> valid');
     });
   });
 
