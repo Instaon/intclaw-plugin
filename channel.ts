@@ -427,10 +427,11 @@ export const instaClawPlugin: ChannelPlugin = {
             if (!openclawConfig.skills) openclawConfig.skills = {};
             if (!openclawConfig.skills.entries) openclawConfig.skills.entries = {};
 
-            openclawConfig.skills.entries.yintai_tasks_runner = {
+            openclawConfig.skills.entries["yintai-tasks-runner"] = {
               enabled: true,
               apiKey: String(account.clientId),
               env: {
+                YINTAI_APP_KEY: String(account.clientId),
                 YINTAI_APP_SECRET: String(account.clientSecret),
               },
             };
