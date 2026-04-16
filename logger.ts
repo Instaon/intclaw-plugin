@@ -69,21 +69,22 @@ export class DebugLogger {
    * @param error - Optional Error object (stack will be included)
    * @param args - Additional arguments to log
    */
-  error(message: string, error?: Error, ...args: any[]): void {
+  error(message: string, errorOrContext?: unknown, ...args: any[]): void {
     const timestamp = this.formatTimestamp();
     
-    if (error) {
+    if (errorOrContext instanceof Error) {
       console.error(
         `${timestamp} [ERROR] ${this.prefix}`,
         message,
         '\nError:',
-        error.message,
+        errorOrContext.message,
         '\nStack:',
-        error.stack,
+        errorOrContext.stack,
         ...args
       );
     } else {
-      console.error(`${timestamp} [ERROR] ${this.prefix}`, message, ...args);
+      const trailingArgs = errorOrContext === undefined ? args : [errorOrContext, ...args];
+      console.error(`${timestamp} [ERROR] ${this.prefix}`, message, ...trailingArgs);
     }
   }
 

@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { AgentToolResult } from 'openclaw/plugin-sdk';
 
 export const artifactUploadTool = {
   name: "upload_artifact",
@@ -16,11 +15,14 @@ export const artifactUploadTool = {
     },
     required: ["filePath"]
   },
-  execute: async (toolCallId: string, params: any, signal?: any, onUpdate?: any): Promise<AgentToolResult<unknown>> => {
+  execute: async (_toolCallId: string, params: any, _signal?: any, _onUpdate?: any) => {
     try {
       const { filePath } = params;
       if (!fs.existsSync(filePath)) {
-        return { result: null, error: `File not found: ${filePath}` }; 
+        return {
+          content: [{ type: "text" as const, text: `File not found: ${filePath}` }],
+          details: { ok: false, error: `File not found: ${filePath}` },
+        };
       }
       
       const fileBuffer = await fs.promises.readFile(filePath);
@@ -40,9 +42,16 @@ export const artifactUploadTool = {
       }
       
       const data = await response.json();
-      return { result: data }; 
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data) }],
+        details: data,
+      };
     } catch (e: any) {
-      return { result: null, error: e.message || 'Upload failed' };
+      const message = e.message || 'Upload failed';
+      return {
+        content: [{ type: "text" as const, text: message }],
+        details: { ok: false, error: message },
+      };
     }
   }
 };

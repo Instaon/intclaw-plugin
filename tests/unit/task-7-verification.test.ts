@@ -7,7 +7,7 @@
  * - 7.3: cleanupContext method (private, tested indirectly)
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SDKDispatcher, type DispatcherConfig } from '../../sdk-dispatcher.js';
 import { DebugLogger } from '../../logger.js';
 import type { WebSocket } from 'ws';

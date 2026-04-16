@@ -207,7 +207,7 @@ describe('Bug Condition Exploration - Standard Protocol Format', () => {
         const result = parseRequest(rawMessage);
 
         // Verify all fields are correctly extracted
-        expect(result.content).toBe(request.input[0].content[0].text);
+        expect(result.content).toBe(request.input[0]!.content[0]!.text);
         expect(result.sessionId).toBe(request.metadata.session_id);
         expect(result.stream).toBe(request.stream);
         expect(result.model).toBe(request.model);

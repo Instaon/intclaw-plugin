@@ -574,11 +574,12 @@ describe('SDKDispatcher - createCallback method', () => {
       // Create a custom mock SDK that sends error
       const errorDispatcher = new SDKDispatcher(config, mockLogger);
       vi.spyOn(errorDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => {
             callback(null, new Error('SDK error'), false);
           }, 100);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_cb_102' };
@@ -655,11 +656,12 @@ describe('SDKDispatcher - createCallback method', () => {
     it('should handle success pattern: chunk → chunk → completion', async () => {
       const customDispatcher = new SDKDispatcher(config, mockLogger);
       vi.spyOn(customDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => callback('chunk1', null, false), 50);
           setTimeout(() => callback('chunk2', null, false), 100);
           setTimeout(() => callback(null, null, true), 150);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_cb_301' };
@@ -701,10 +703,11 @@ describe('SDKDispatcher - createCallback method', () => {
     it('should handle error pattern: chunk → error', async () => {
       const customDispatcher = new SDKDispatcher(config, mockLogger);
       vi.spyOn(customDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => callback('chunk1', null, false), 50);
           setTimeout(() => callback(null, new Error('Processing failed'), false), 100);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_cb_302' };
@@ -787,9 +790,10 @@ describe('SDKDispatcher - createCallback method', () => {
     it('should log chunk length', async () => {
       const customDispatcher = new SDKDispatcher(config, mockLogger);
       vi.spyOn(customDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => callback('Hello World!', null, false), 50);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_cb_403' };
@@ -866,9 +870,10 @@ describe('SDKDispatcher - createCallback method', () => {
       
       // Mock SDK to send error
       vi.spyOn(errorDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => callback(null, new Error('SDK error'), false), 100);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_cb_503' };
@@ -1307,11 +1312,12 @@ describe('SDKDispatcher - handleError method', () => {
       
       // Mock SDK to invoke callback with error
       vi.spyOn(errorDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => {
             callback(null, new Error('Callback error'), false);
           }, 100);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_err_601' };
@@ -1334,11 +1340,12 @@ describe('SDKDispatcher - handleError method', () => {
       const errorDispatcher = new SDKDispatcher(config, mockLogger);
       
       vi.spyOn(errorDispatcher as any, 'mockSDKDispatch').mockImplementation(
-        async (content: string, callback: any) => {
+        (async (...args: any[]) => {
+          const callback = args[1] as any;
           setTimeout(() => {
             callback(null, new Error('Callback error'), false);
           }, 100);
-        }
+        }) as any
       );
       
       const request = { content: 'Test', messageId: 'msg_err_602' };

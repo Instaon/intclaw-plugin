@@ -14,71 +14,81 @@
 
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
+import {
+  CHANNEL_ID,
+  listInstaClawAccountIds,
+  resolveInstaClawAccount,
+  type ResolvedInstaClawAccount,
+} from "./account-config";
 import { monitorInstaClawProvider } from "./connection";
 import { createEnvelope, textToEventSequence } from "./protocol";
 import { DebugLogger } from "./logger";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
 
-const CHANNEL_ID = "insta-claw-connector" as const;
+const YINTAI_TASKS_RUNNER_SKILL_KEY = "yintai_tasks_runner";
 
-/**
- * Resolved account type for InstaClaw connector
- */
-interface ResolvedInstaClawAccount {
-  accountId: string;
-  enabled: boolean;
-  configured: boolean;
-  name?: string;
-  clientId?: string;
-  clientSecret?: string;
-  systemPrompt?: string;
-  config: Record<string, unknown>;
-}
-
-/**
- * List all InstaClaw account IDs.
- * Currently supports only the default account.
- */
-function listInstaClawAccountIds(cfg: any): string[] {
-  const accounts = cfg.channels?.[CHANNEL_ID]?.accounts;
-  if (!accounts || typeof accounts !== "object") {
-    return [DEFAULT_ACCOUNT_ID];
-  }
-  const ids = Object.keys(accounts).filter(Boolean);
-  return ids.length > 0 ? [...ids].sort() : [DEFAULT_ACCOUNT_ID];
-}
-
-/**
- * Resolve a complete InstaClaw account with merged config.
- */
-function resolveInstaClawAccount(cfg: any, accountId?: string | null): ResolvedInstaClawAccount {
-  const hasExplicitAccountId = typeof accountId === "string" && accountId.trim() !== "";
-  const resolvedAccountId = hasExplicitAccountId ? accountId! : DEFAULT_ACCOUNT_ID;
-  const channelCfg = cfg.channels?.[CHANNEL_ID] ?? {};
-
-  // For named accounts, merge with base config
-  let merged = { ...channelCfg };
-  if (hasExplicitAccountId && channelCfg.accounts?.[resolvedAccountId]) {
-    const { accounts: _ignored, defaultAccount: _ignoredDefault, ...base } = channelCfg;
-    merged = { ...base, ...channelCfg.accounts[resolvedAccountId] };
+function syncSkillCredentials(account: ResolvedInstaClawAccount, logger: DebugLogger): void {
+  if (!account.clientId || !account.clientSecret) {
+    return;
   }
 
-  const enabled = merged.enabled !== false;
-  const clientId = typeof merged.clientId === "string" ? merged.clientId.trim() || undefined : undefined;
-  const clientSecret = typeof merged.clientSecret === "string" ? merged.clientSecret.trim() || undefined : undefined;
+  const openclawConfigPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
 
-  return {
-    accountId: resolvedAccountId,
-    enabled,
-    configured: Boolean(clientId && clientSecret),
-    name: typeof merged.name === "string" ? merged.name.trim() || undefined : undefined,
-    clientId,
-    clientSecret,
-    systemPrompt: typeof merged.systemPrompt === "string" ? merged.systemPrompt.trim() || undefined : undefined,
-    config: merged,
-  };
+  try {
+    let openclawConfig: Record<string, any> = {};
+
+    if (fs.existsSync(openclawConfigPath)) {
+      const raw = fs.readFileSync(openclawConfigPath, "utf-8");
+      openclawConfig = raw.trim() ? JSON.parse(raw) : {};
+    }
+
+    if (!openclawConfig["skills"] || typeof openclawConfig["skills"] !== "object") {
+      openclawConfig["skills"] = {};
+    }
+    if (
+      !openclawConfig["skills"]["entries"] ||
+      typeof openclawConfig["skills"]["entries"] !== "object"
+    ) {
+      openclawConfig["skills"]["entries"] = {};
+    }
+
+    const existingEntry =
+      openclawConfig["skills"]["entries"][YINTAI_TASKS_RUNNER_SKILL_KEY] &&
+      typeof openclawConfig["skills"]["entries"][YINTAI_TASKS_RUNNER_SKILL_KEY] === "object"
+        ? openclawConfig["skills"]["entries"][YINTAI_TASKS_RUNNER_SKILL_KEY]
+        : {};
+
+    openclawConfig["skills"]["entries"][YINTAI_TASKS_RUNNER_SKILL_KEY] = {
+      ...existingEntry,
+      enabled: true,
+      apiKey: account.clientId,
+      env: {
+        ...(existingEntry.env && typeof existingEntry.env === "object" ? existingEntry.env : {}),
+        YINTAI_APP_KEY: account.clientId,
+        YINTAI_APP_SECRET: account.clientSecret,
+      },
+    };
+
+    const openclawDir = path.dirname(openclawConfigPath);
+    if (!fs.existsSync(openclawDir)) {
+      fs.mkdirSync(openclawDir, { recursive: true });
+    }
+
+    fs.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), "utf-8");
+
+    logger.info("Synchronized skill credentials to openclaw.json", {
+      configPath: openclawConfigPath,
+      skillKey: YINTAI_TASKS_RUNNER_SKILL_KEY,
+      apiKeyLength: account.clientId.length,
+    });
+  } catch (err) {
+    logger.error("Failed to synchronize skill credentials", err as Error, {
+      configPath: openclawConfigPath,
+      skillKey: YINTAI_TASKS_RUNNER_SKILL_KEY,
+    });
+  }
 }
 
 /**
@@ -408,55 +418,14 @@ export const instaClawPlugin: ChannelPlugin = {
         throw new Error(`InstaClaw account "${accountId}" is not properly configured (missing clientId/clientSecret)`);
       }
 
-      // --- Write clientId/clientSecret to openclaw config for yintai_tasks_runner skill ---
       const connectorCfg = account.config;
       const logger = new DebugLogger(Boolean(connectorCfg?.['debug']), `[InstaClaw:startAccount]`);
-
-      if (account.clientId && account.clientSecret) {
-        const openclawConfigPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
-        try {
-          let openclawConfig: any = {};
-          if (fs.existsSync(openclawConfigPath)) {
-            const raw = fs.readFileSync(openclawConfigPath, "utf-8");
-            openclawConfig = JSON.parse(raw);
-          }
-
-          const skillEntry = openclawConfig?.skills?.entries?.yintai_tasks_runner;
-          // Only write if the skill is not yet configured
-          if (!skillEntry) {
-            if (!openclawConfig.skills) openclawConfig.skills = {};
-            if (!openclawConfig.skills.entries) openclawConfig.skills.entries = {};
-
-            openclawConfig.skills.entries["yintai-tasks-runner"] = {
-              enabled: true,
-              apiKey: String(account.clientId),
-              env: {
-                YINTAI_APP_KEY: String(account.clientId),
-                YINTAI_APP_SECRET: String(account.clientSecret),
-              },
-            };
-
-            // Ensure the directory exists
-            const openclawDir = path.dirname(openclawConfigPath);
-            if (!fs.existsSync(openclawDir)) {
-              fs.mkdirSync(openclawDir, { recursive: true });
-            }
-
-            fs.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), "utf-8");
-            logger.info("Wrote yintai_tasks_runner skill config to openclaw.json", {
-              configPath: openclawConfigPath,
-              apiKeyLength: String(account.clientId).length,
-            });
-          } else {
-            logger.debug("yintai_tasks_runner skill already configured, skipping write");
-          }
-        } catch (err) {
-          logger.error("Failed to write openclaw config", err as Error, {
-            configPath: openclawConfigPath,
-          });
-          // Non-fatal: continue with WebSocket connection
-        }
-      }
+      syncSkillCredentials(account, logger);
+      logger.debug("Using resolved account configuration for gateway startup", {
+        accountId: account.accountId,
+        hasClientId: Boolean(account.clientId),
+        hasClientSecret: Boolean(account.clientSecret),
+      });
 
       // Store connection reference for outbound messages
       // This will be populated by the Provider Monitor

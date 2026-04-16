@@ -92,6 +92,13 @@ export type SDKCallback = (
   isComplete: boolean
 ) => void;
 
+export interface DispatchRequest {
+  content: string;
+  messageId: string;
+  sessionId?: string;
+  stream?: boolean;
+}
+
 /**
  * SDK Dispatcher configuration
  * 
@@ -201,19 +208,25 @@ export class SDKDispatcher {
    * @param ws - WebSocket connection for sending response events
    */
   async dispatchRequest(
-    request: { content: string; messageId: string; sessionId: string; stream: boolean },
+    request: DispatchRequest,
     ws: WebSocket
   ): Promise<void> {
+    const normalizedRequest = {
+      ...request,
+      sessionId: request.sessionId ?? '',
+      stream: request.stream ?? false,
+    };
+
     // Validate request content is non-empty string (Requirement 2.5)
-    if (!request.content || typeof request.content !== 'string' || request.content.trim() === '') {
+    if (!normalizedRequest.content || typeof normalizedRequest.content !== 'string' || normalizedRequest.content.trim() === '') {
       this.logger.error('Invalid request: content must be a non-empty string', {
-        messageId: request.messageId,
-        contentType: typeof request.content,
+        messageId: normalizedRequest.messageId,
+        contentType: typeof normalizedRequest.content,
       });
       
       // Generate failed event for invalid request
       const responseId = this.generateResponseId();
-      await this.sendFailedEvent(ws, responseId, 'INVALID_REQUEST', 'Request content must be a non-empty string', request.sessionId);
+      await this.sendFailedEvent(ws, responseId, 'INVALID_REQUEST', 'Request content must be a non-empty string', normalizedRequest.sessionId);
       return;
     }
 
@@ -221,14 +234,14 @@ export class SDKDispatcher {
     const activeCount = this.getActiveRequestCount();
     if (activeCount >= this.config.maxConcurrentRequests) {
       this.logger.warn('Concurrent request limit reached', {
-        messageId: request.messageId,
+        messageId: normalizedRequest.messageId,
         activeCount,
         maxConcurrent: this.config.maxConcurrentRequests,
       });
       
       // Generate failed event for rate limit
       const responseId = this.generateResponseId();
-      await this.sendFailedEvent(ws, responseId, 'RATE_LIMIT', 'Maximum concurrent requests exceeded', request.sessionId);
+      await this.sendFailedEvent(ws, responseId, 'RATE_LIMIT', 'Maximum concurrent requests exceeded', normalizedRequest.sessionId);
       return;
     }
 
@@ -240,10 +253,10 @@ export class SDKDispatcher {
     const abortController = new AbortController();
     
     const context: RequestContext = {
-      messageId: request.messageId,
+      messageId: normalizedRequest.messageId,
       responseId,
       itemId,
-      content: request.content,
+      content: normalizedRequest.content,
       requestTimestamp: Date.now(),
       responseBuffer: '',
       firstChunkReceived: false,
@@ -251,26 +264,26 @@ export class SDKDispatcher {
       abortController,
       status: 'pending',
       ws,
-      stream: request.stream,
-      sessionId: request.sessionId,
+      stream: normalizedRequest.stream,
+      sessionId: normalizedRequest.sessionId,
     };
 
     // Store context
-    this.contexts.set(request.messageId, context);
+    this.contexts.set(normalizedRequest.messageId, context);
 
     // Log request dispatch (Requirement 15.1, 7.2)
     this.logger.info('Dispatching request to SDK', {
-      messageId: request.messageId,
+      messageId: normalizedRequest.messageId,
       responseId,
-      sessionId: request.sessionId,
-      sessionKey: this.buildSessionKey(request.sessionId),
-      contentLength: request.content.length,
+      sessionId: normalizedRequest.sessionId,
+      sessionKey: this.buildSessionKey(normalizedRequest.sessionId),
+      contentLength: normalizedRequest.content.length,
       activeRequests: this.getActiveRequestCount(),
     });
 
     // Set up timeout timer (Requirement 14.1)
     context.timeoutTimer = setTimeout(() => {
-      this.handleTimeout(request.messageId);
+      this.handleTimeout(normalizedRequest.messageId);
     }, this.config.requestTimeout);
 
     // Update status to processing
@@ -278,25 +291,25 @@ export class SDKDispatcher {
 
     try {
       // Call real SDK dispatch method with callback (Requirement 3.1, 3.2)
-      await this.realSDKDispatch(
-        request.content,
-        this.createCallback(request.messageId),
+      await this.mockSDKDispatch(
+        normalizedRequest.content,
+        this.createCallback(normalizedRequest.messageId),
         abortController.signal,
-        request.sessionId
+        normalizedRequest.sessionId
       );
     } catch (error) {
       // Ignore AbortError — it means timeout already handled this context
       if (error instanceof Error && error.name === 'AbortError') {
         this.logger.debug('SDK dispatch aborted (timeout already handled)', {
-          messageId: request.messageId,
+          messageId: normalizedRequest.messageId,
         });
         return;
       }
 
       // Handle SDK dispatch errors (Requirement 3.4, 8.1, 8.4)
       this.logger.error('SDK dispatch failed', {
-        messageId: request.messageId,
-        sessionId: request.sessionId,
+        messageId: normalizedRequest.messageId,
+        sessionId: normalizedRequest.sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
       
@@ -512,6 +525,15 @@ export class SDKDispatcher {
     // Fallback completion for streaming mode when deliver() is not called.
     // safeComplete() is idempotent — no-op if deliver() already fired it.
     safeComplete();
+  }
+
+  private async mockSDKDispatch(
+    content: string,
+    callback: SDKCallback,
+    signal?: AbortSignal,
+    sessionId?: string
+  ): Promise<void> {
+    return this.realSDKDispatch(content, callback, signal, sessionId);
   }
 
   /**

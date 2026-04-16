@@ -8,6 +8,7 @@
  */
 
 import WebSocket from 'ws';
+import { resolveInstaClawAccount } from './account-config';
 import type { 
   ConnectionConfig, 
   ConnectionState, 
@@ -619,22 +620,24 @@ export async function monitorInstaClawProvider(
   const { SDKDispatcher } = await import('./sdk-dispatcher.js');
   
   // Extract plugin configuration
-  const config = cfg.channels?.["insta-claw-connector"];
+  const account = resolveInstaClawAccount(cfg, accountId);
+  const config = account.config;
 
   // Initialize logger early for configuration diagnostics
-  const logger = new DebugLogger(config?.debug ?? false, `[InstaClaw:${accountId}]`);
+  const debugEnabled = config["debug"] === true;
+  const logger = new DebugLogger(debugEnabled, `[InstaClaw:${accountId}]`);
 
   logger.info('Resolved configuration', {
     hasConfig: !!config,
-    enabled: config?.enabled,
-    hasClientId: !!config?.clientId,
-    clientIdLength: config?.clientId?.length ?? 0,
-    hasClientSecret: !!config?.clientSecret,
+    enabled: account.enabled,
+    hasClientId: !!account.clientId,
+    clientIdLength: account.clientId?.length ?? 0,
+    hasClientSecret: !!account.clientSecret,
     wsUrl: WS_URL,
   });
 
   // Validate configuration: enabled defaults to true when field is absent
-  if (config?.enabled === false) {
+  if (!account.enabled) {
     const error = new Error("InstaClaw connector is not enabled in configuration");
     throw error;
   }
@@ -644,12 +647,12 @@ export async function monitorInstaClawProvider(
     throw error;
   }
 
-  if (!config.clientId || config.clientId.trim() === '') {
+  if (!account.clientId || account.clientId.trim() === '') {
     const error = new Error("Missing required configuration: clientId must be provided and non-empty");
     throw error;
   }
 
-  if (!config.clientSecret || config.clientSecret.trim() === '') {
+  if (!account.clientSecret || account.clientSecret.trim() === '') {
     const error = new Error("Missing required configuration: clientSecret must be provided and non-empty");
     throw error;
   }
@@ -668,7 +671,7 @@ export async function monitorInstaClawProvider(
     {
       requestTimeout: SDK_REQUEST_TIMEOUT,
       maxConcurrentRequests: MAX_CONCURRENT_REQUESTS,
-      debug: config?.debug ?? false,
+      debug: debugEnabled,
       cfg,
     },
     logger,
@@ -962,9 +965,9 @@ export async function monitorInstaClawProvider(
   // Create connection configuration
   const connectionConfig: ConnectionConfig = {
     wsUrl: WS_URL,
-    clientId: config.clientId,
-    clientSecret: config.clientSecret,
-    enabled: config.enabled !== false, // Default to true when not explicitly set
+    clientId: account.clientId,
+    clientSecret: account.clientSecret,
+    enabled: account.enabled,
     heartbeatInterval: HEARTBEAT_INTERVAL,
     reconnectMaxAttempts: MAX_RECONNECT_ATTEMPTS, // 0 means infinite reconnection
   };

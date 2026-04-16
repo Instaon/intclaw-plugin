@@ -8,6 +8,7 @@
   "files": [
     "index.ts",
     "config.ts",
+    "account-config.ts",
     "connection.ts",
     "protocol.ts",
     "logger.ts",

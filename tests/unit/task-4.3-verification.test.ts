@@ -63,7 +63,7 @@ describe('Task 4.3: Event Transmission via WebSocket', () => {
       expect(sentMessages.length).toBeGreaterThan(0);
 
       // Parse first message (should be in_progress event)
-      const envelope = JSON.parse(sentMessages[0]);
+      const envelope = JSON.parse(sentMessages[0]!);
 
       // Verify envelope structure
       expect(envelope).toHaveProperty('type', 'MESSAGE');
@@ -98,7 +98,7 @@ describe('Task 4.3: Event Transmission via WebSocket', () => {
       await new Promise(resolve => setTimeout(resolve, 250));
 
       // Parse first envelope
-      const envelope = JSON.parse(sentMessages[0]);
+      const envelope = JSON.parse(sentMessages[0]!);
 
       // Verify data field is a JSON string
       expect(typeof envelope.data).toBe('string');
@@ -235,7 +235,7 @@ describe('Task 4.3: Event Transmission via WebSocket', () => {
   describe('Requirement 6.5: If WebSocket not open, log error and discard event', () => {
     it('should not send when WebSocket is closed', async () => {
       // Set WebSocket to closed state
-      mockWs.readyState = 3; // WebSocket.CLOSED
+      (mockWs as any).readyState = 3; // WebSocket.CLOSED
 
       await dispatcher.dispatchRequest(
         { content: 'test', messageId: 'msg_010' },
@@ -250,7 +250,7 @@ describe('Task 4.3: Event Transmission via WebSocket', () => {
 
     it('should not send when WebSocket is connecting', async () => {
       // Set WebSocket to connecting state
-      mockWs.readyState = 0; // WebSocket.CONNECTING
+      (mockWs as any).readyState = 0; // WebSocket.CONNECTING
 
       await dispatcher.dispatchRequest(
         { content: 'test', messageId: 'msg_011' },
@@ -265,7 +265,7 @@ describe('Task 4.3: Event Transmission via WebSocket', () => {
 
     it('should not send when WebSocket is closing', async () => {
       // Set WebSocket to closing state
-      mockWs.readyState = 2; // WebSocket.CLOSING
+      (mockWs as any).readyState = 2; // WebSocket.CLOSING
 
       await dispatcher.dispatchRequest(
         { content: 'test', messageId: 'msg_012' },
