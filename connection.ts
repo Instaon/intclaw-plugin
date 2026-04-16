@@ -746,6 +746,7 @@ export async function monitorInstaClawProvider(
         logger.info('Parsed user request', {
           messageId: request.messageId,
           topic: request.topic,
+          sessionId: request.sessionId,
           contentLength: request.content.length,
         });
 

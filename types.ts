@@ -282,7 +282,11 @@ export interface RequestContent {
   messageId: string;
   /** Topic from envelope.headers.topic */
   topic: string;
-  /** Session identifier from request metadata.session_id */
+  /**
+   * Session identifier for user isolation
+   * Format: channel:{channelId}:user:{userId}
+   * Validates: Requirements 4.6
+   */
   sessionId: string;
   /** Streaming flag from request.stream */
   stream: boolean;

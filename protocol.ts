@@ -47,6 +47,24 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Build session identifier from userId and channelId
+ * 
+ * Constructs a deterministic session identifier in the format:
+ * channel:{channelId}:user:{userId}
+ * 
+ * This implements OpenClaw's per-channel-peer isolation mode.
+ * 
+ * @param userId - User identifier (will be converted to string)
+ * @param channelId - Channel identifier (will be converted to string)
+ * @returns Session identifier string
+ * 
+ * Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
+ */
+export function buildSessionId(userId: string | number, channelId: string | number): string {
+  return `channel:${String(channelId)}:user:${String(userId)}`;
+}
+
 // ============================================================================
 // Envelope Parsing — inbound user messages (open-responses.md §9.1)
 // ============================================================================
@@ -58,6 +76,8 @@ function isoNow(): string {
  *   { model: "...", stream: true/false, input: [...], metadata: { session_id: "..." } }
  *
  * Returns the RequestContent with extracted fields from the standard format.
+ * 
+ * Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.7
  */
 export function parseRequest(rawMessage: string): RequestContent {
   try {
@@ -79,24 +99,26 @@ export function parseRequest(rawMessage: string): RequestContent {
       throw new Error('Invalid request: missing or non-string text field in input[0].content[0]');
     }
 
-    if (!request.metadata || typeof request.metadata !== 'object') {
-      throw new Error('Invalid request: missing or invalid metadata object');
-    }
-
-    if (!request.metadata.session_id || typeof request.metadata.session_id !== 'string') {
-      throw new Error('Invalid request: missing or non-string metadata.session_id');
-    }
-
     // Extract fields from standard request format
     const content = firstContent.text;
-    const sessionId = request.metadata.session_id;
+
+    // Extract session_id directly from metadata (Requirement 1.1, 2.7)
+    // server sends metadata.session_id; fallback to a generated ID if absent
+    const sessionId: string =
+      (request.metadata?.session_id && typeof request.metadata.session_id === 'string')
+        ? request.metadata.session_id
+        : generateMessageId(); // anonymous session
+
     const stream = request.stream !== undefined ? request.stream : true; // Default to true if missing
     const model = request.model; // Optional field
 
     // Generate message ID (or extract from metadata if available)
-    const messageId = request.metadata.message_id || generateMessageId();
+    const messageId = request.metadata?.message_id || generateMessageId();
 
-    // Return RequestContent with all extracted fields
+    // Log parsed request with session information (Requirement 7.1)
+    // Note: Logger is not available in protocol.ts, logging will be done in connection.ts
+    
+    // Return RequestContent with all extracted fields (Requirement 1.5)
     return {
       content,
       messageId,

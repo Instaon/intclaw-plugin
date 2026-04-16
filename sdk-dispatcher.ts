@@ -258,10 +258,12 @@ export class SDKDispatcher {
     // Store context
     this.contexts.set(request.messageId, context);
 
-    // Log request dispatch (Requirement 15.1)
+    // Log request dispatch (Requirement 15.1, 7.2)
     this.logger.info('Dispatching request to SDK', {
       messageId: request.messageId,
       responseId,
+      sessionId: request.sessionId,
+      sessionKey: this.buildSessionKey(request.sessionId),
       contentLength: request.content.length,
       activeRequests: this.getActiveRequestCount(),
     });
@@ -279,7 +281,8 @@ export class SDKDispatcher {
       await this.realSDKDispatch(
         request.content,
         this.createCallback(request.messageId),
-        abortController.signal
+        abortController.signal,
+        request.sessionId
       );
     } catch (error) {
       // Ignore AbortError — it means timeout already handled this context
@@ -290,9 +293,10 @@ export class SDKDispatcher {
         return;
       }
 
-      // Handle SDK dispatch errors (Requirement 3.4, 8.1)
+      // Handle SDK dispatch errors (Requirement 3.4, 8.1, 8.4)
       this.logger.error('SDK dispatch failed', {
         messageId: request.messageId,
+        sessionId: request.sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
       
@@ -369,6 +373,32 @@ export class SDKDispatcher {
   }
 
   /**
+   * Build Session_Key for SDK dispatch
+   * 
+   * Constructs the Session_Key in the format:
+   * - With sessionId and accountId: `instaclaw:{accountId}:{sessionId}`
+   * - With sessionId but no accountId: `instaclaw:default:{sessionId}`
+   * - Without sessionId but with accountId: `instaclaw:{accountId}`
+   * - Without sessionId or accountId: `instaclaw:default`
+   * 
+   * Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.6
+   * 
+   * @param sessionId - Optional session identifier from request
+   * @returns Session_Key string for SDK dispatch
+   */
+  private buildSessionKey(sessionId?: string): string {
+    if (!sessionId) {
+      return this.accountId ? `instaclaw:${this.accountId}` : 'instaclaw:default';
+    }
+    
+    if (this.accountId) {
+      return `instaclaw:${this.accountId}:${sessionId}`;
+    }
+    
+    return `instaclaw:default:${sessionId}`;
+  }
+
+  /**
    * Dispatch request to the real SDK using channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher
    *
    * Converts the SDK's block-based reply delivery into the streaming callback pattern
@@ -384,7 +414,8 @@ export class SDKDispatcher {
   private async realSDKDispatch(
     content: string,
     callback: SDKCallback,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    sessionId?: string
   ): Promise<void> {
     if (!this.channelRuntime?.reply?.dispatchReplyWithBufferedBlockDispatcher) {
       // Fallback: channelRuntime not injected (e.g. unit tests or backward-compat mode).
@@ -405,10 +436,11 @@ export class SDKDispatcher {
     }
 
     // Build a MsgContext for the SDK dispatch
+    // Construct Session_Key using buildSessionKey method (Requirement 3.4, 3.5, 3.7)
     const msgCtx = {
       Body: content,
       AccountId: this.accountId,
-      SessionKey: this.accountId ? `instaclaw:${this.accountId}` : undefined,
+      SessionKey: this.buildSessionKey(sessionId),
     };
 
     // Guard against double-completion:
@@ -610,6 +642,7 @@ export class SDKDispatcher {
       this.logger.warn('Request timeout', {
         messageId,
         responseId: context.responseId,
+        sessionId: context.sessionId,
         duration: Date.now() - context.requestTimestamp,
         status: context.status,
       });
@@ -640,6 +673,7 @@ export class SDKDispatcher {
         this.logger.info('SDK operation aborted due to timeout', {
           messageId,
           responseId: context.responseId,
+          sessionId: context.sessionId,
         });
       }
 
@@ -649,6 +683,7 @@ export class SDKDispatcher {
       this.logger.info('Request timeout handled', {
         messageId,
         responseId: context.responseId,
+        sessionId: context.sessionId,
         duration: Date.now() - context.requestTimestamp,
       });
     } catch (error) {
@@ -735,6 +770,7 @@ export class SDKDispatcher {
         this.logger.debug('Sent response.output_item.added event', {
           messageId: context.messageId,
           responseId: context.responseId,
+          sessionId: context.sessionId,
           itemId: context.itemId,
         });
       } else {
@@ -779,6 +815,7 @@ export class SDKDispatcher {
         this.logger.debug('Sent response.output_text.delta event', {
           messageId: context.messageId,
           responseId: context.responseId,
+          sessionId: context.sessionId,
           textLength: text.length,
         });
       } else {
@@ -822,6 +859,7 @@ export class SDKDispatcher {
         this.logger.debug('Sent response.content_part.done event', {
           messageId: context.messageId,
           responseId: context.responseId,
+          sessionId: context.sessionId,
         });
       } else {
         this.logger.warn('WebSocket not open, cannot send content_part.done event', {
@@ -965,6 +1003,7 @@ export class SDKDispatcher {
           this.logger.debug('Sent response.failed event', {
             messageId: context.messageId,
             responseId: context.responseId,
+            sessionId: context.sessionId,
             errorCode: code,
           });
         } catch (sendError) {
@@ -1089,6 +1128,7 @@ export class SDKDispatcher {
       this.logger.info('Request completed successfully', {
         messageId: context.messageId,
         responseId: context.responseId,
+        sessionId: context.sessionId,
         responseLength: context.responseBuffer.length,
         duration: Date.now() - context.requestTimestamp,
         stream: context.stream,
@@ -1124,6 +1164,7 @@ export class SDKDispatcher {
     this.logger.error('Handling error', { 
       messageId: context.messageId, 
       responseId: context.responseId,
+      sessionId: context.sessionId,
       error: error.message,
       stack: error.stack,
     });
@@ -1146,6 +1187,7 @@ export class SDKDispatcher {
       this.logger.info('Request failed', {
         messageId: context.messageId,
         responseId: context.responseId,
+        sessionId: context.sessionId,
         errorCode,
         duration: Date.now() - context.requestTimestamp,
       });
@@ -1200,6 +1242,7 @@ export class SDKDispatcher {
     this.logger.debug('Context cleaned up', {
       messageId,
       responseId: context.responseId,
+      sessionId: context.sessionId,
       status: context.status,
       activeRequests: this.getActiveRequestCount(),
     });
