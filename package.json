@@ -1,6 +1,6 @@
 {
   "name": "@insta-dev01/insta-claw-connector",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Instagram Claw Connector - A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging",
   "main": "index.ts",
   "types": "index.ts",
