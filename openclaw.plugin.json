@@ -1,11 +1,55 @@
 {
   "id": "insta-claw-connector",
-  "name": "Instagram Claw Connector",
-  "version": "1.0.10",
+  "name": "insta-claw-connector",
+  "version": "1.0.12",
   "description": "A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging using Open Responses protocol",
   "author": "Instagram Claw Team",
   "main": "index.ts",
   "channels": ["insta-claw-connector"],
+  "channelConfigs": {
+    "insta-claw-connector": {
+      "name": "insta-claw-connector",
+      "description": "A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "appKey": {
+            "type": "string",
+            "description": "APP key for authentication with IntClaw server"
+          },
+          "appSecret": {
+            "type": "string",
+            "description": "APP secret for authentication with IntClaw server"
+          },
+          "cloudTwin": {
+            "type": "boolean",
+            "description": "Enable cloud twin mode",
+            "default": false
+          },
+          "cloudTwinUploadAllowlist": {
+            "type": "array",
+            "description": "Allow uploading files for Twin",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "AGENTS.md",
+              "SOUL.md",
+              "IDENTITY.md",
+              "TOOLS.md",
+              "HEARTBEAT.md",
+              "BOOT.md",
+              "BOOTSTRAP.md",
+              "skills/",
+              "canvas/"
+            ]
+          }
+        }
+      }
+    }
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

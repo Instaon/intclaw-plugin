@@ -1,6 +1,6 @@
 {
   "name": "@insta-dev01/insta-claw-connector",
-  "version": "1.0.10",
+  "version": "1.0.12",
   "description": "Instagram Claw Connector - A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging",
   "main": "index.ts",
   "types": "index.ts",
@@ -30,7 +30,7 @@
     "test:unit": "vitest run tests/unit",
     "type-check": "tsc --noEmit",
     "publish:public": "npm publish --access public --registry=https://registry.npmjs.org/",
-    "tologin":"npm login --registry=https://registry.npmjs.org/"
+    "tologin": "npm login --registry=https://registry.npmjs.org/"
   },
   "keywords": [
     "openclaw",
@@ -46,7 +46,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "openclaw": "^2026.3.0",
+    "openclaw": "^2026.4.24",
     "ws": "^8.20.0"
   },
   "devDependencies": {
