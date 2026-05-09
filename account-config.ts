@@ -35,8 +35,10 @@ export function resolveInstaClawAccount(cfg: any, accountId?: string | null): Re
   }
 
   const enabled = merged.enabled !== false;
-  const clientId = typeof merged.clientId === "string" ? merged.clientId.trim() || undefined : undefined;
-  const clientSecret = typeof merged.clientSecret === "string" ? merged.clientSecret.trim() || undefined : undefined;
+  const rawClientId = merged.appKey || merged.clientId;
+  const rawClientSecret = merged.appSecret || merged.clientSecret;
+  const clientId = typeof rawClientId === "string" ? rawClientId.trim() || undefined : undefined;
+  const clientSecret = typeof rawClientSecret === "string" ? rawClientSecret.trim() || undefined : undefined;
 
   return {
     accountId: resolvedAccountId,
