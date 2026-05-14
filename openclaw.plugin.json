@@ -1,7 +1,7 @@
 {
   "id": "insta-claw-connector",
   "name": "insta-claw-connector",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "A lightweight OpenClaw channel plugin for WebSocket-based bidirectional messaging using Open Responses protocol",
   "author": "Instagram Claw Team",
   "main": "index.ts",
@@ -15,36 +15,22 @@
         "additionalProperties": false,
         "properties": {
           "enabled": { "type": "boolean", "default": true },
-          "appKey": {
+          "clientId": {
             "type": "string",
-            "description": "APP key for authentication with IntClaw server"
+            "description": "Client ID (x-app-key) for authentication with InstaClaw server"
           },
-          "appSecret": {
+          "clientSecret": {
             "type": "string",
-            "description": "APP secret for authentication with IntClaw server"
+            "description": "Client Secret (x-app-secret) for authentication with InstaClaw server"
           },
-          "cloudTwin": {
+          "systemPrompt": {
+            "type": "string",
+            "description": "System prompt for the InstaClaw connector"
+          },
+          "debug": {
             "type": "boolean",
-            "description": "Enable cloud twin mode",
+            "description": "Enable debug logging",
             "default": false
-          },
-          "cloudTwinUploadAllowlist": {
-            "type": "array",
-            "description": "Allow uploading files for Twin",
-            "items": {
-              "type": "string"
-            },
-            "default": [
-              "AGENTS.md",
-              "SOUL.md",
-              "IDENTITY.md",
-              "TOOLS.md",
-              "HEARTBEAT.md",
-              "BOOT.md",
-              "BOOTSTRAP.md",
-              "skills/",
-              "canvas/"
-            ]
           }
         }
       }
@@ -55,36 +41,17 @@
     "additionalProperties": false,
     "properties": {
       "enabled": { "type": "boolean", "default": true },
-      "appKey": {
+      "clientId": {
         "type": "string",
-        "description": "APP key for authentication with IntClaw server"
+        "description": "Client ID (x-app-key) for authentication with InstaClaw server"
       },
-      "appSecret": {
+      "clientSecret": {
         "type": "string",
-        "description": "APP secret for authentication with IntClaw server"
+        "description": "Client Secret (x-app-secret) for authentication with InstaClaw server"
       },
-      "cloudTwin": {
-        "type": "boolean",
-        "description": "Enable cloud twin mode",
-        "default": false
-      },
-      "cloudTwinUploadAllowlist": {
-        "type": "array",
-        "description": "Allow uploading files for Twin",
-        "items": {
-          "type": "string"
-        },
-        "default": [
-          "AGENTS.md",
-          "SOUL.md",
-          "IDENTITY.md",
-          "TOOLS.md",
-          "HEARTBEAT.md",
-          "BOOT.md",
-          "BOOTSTRAP.md",
-          "skills/",
-          "canvas/"
-        ]
+      "systemPrompt": {
+        "type": "string",
+        "description": "System prompt for the InstaClaw connector"
       }
     }
   }

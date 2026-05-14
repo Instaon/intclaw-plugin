@@ -288,6 +288,10 @@ export const instaClawPlugin: ChannelPlugin = {
         systemPrompt: {
           type: "string",
         },
+        debug: {
+          type: "boolean",
+          default: false,
+        },
       },
     },
     uiHints: {
@@ -303,6 +307,9 @@ export const instaClawPlugin: ChannelPlugin = {
       },
       systemPrompt: {
         label: "System Prompt",
+      },
+      debug: {
+        label: "Enable Debug Logging",
       },
     },
   },
