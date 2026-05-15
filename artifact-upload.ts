@@ -5,7 +5,7 @@ import { ARTIFACT_UPLOAD_URL, ARTIFACT_HIRE_BIND_URL } from './config';
 export const artifactUploadTool = {
   name: "upload_artifact",
   label: "Upload Artifact File (上传产物文件)",
-  description: "将产物文件上传到目标地址，并获取文件链接。可发送给用户。多个文件建议先压缩为zip后再使用此工具上传。不要上传无关文件。如果当前处于某个用户雇佣会话中，请务必同时传入 sessionId 参数，以便将上传的文件与该雇佣会话自动关联。",
+  description: "将产物文件上传到目标地址，并获取文件链接。可发送给用户。多个文件建议先压缩为zip后再使用此工具上传。不要上传无关文件。如果系统提示词中包含【当前会话信息】，请将其中的 sessionId 值传入本工具的 sessionId 参数，以便将产物与当前雇佣会话自动关联。",
   parameters: {
     type: "object",
     properties: {

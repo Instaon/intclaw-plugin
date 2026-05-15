@@ -450,11 +450,25 @@ export class SDKDispatcher {
 
     // Build a MsgContext for the SDK dispatch
     // Construct Session_Key using buildSessionKey method (Requirement 3.4, 3.5, 3.7)
+    //
+    // SystemPrompt 组合规则：
+    //   1. 优先使用 config.systemPrompt（用户在插件配置中填写的提示词）
+    //   2. 若当前请求携带有效 sessionId，追加一段工具使用说明，
+    //      让 LLM 知道 sessionId 的值并能在调用 upload_artifact 时主动传入，
+    //      从而实现产物与雇佣 session 的自动关联。
+    const baseSystemPrompt = this.config.systemPrompt ?? '';
+    const sessionInstruction = sessionId
+      ? `\n\n【当前会话信息】\n当前雇佣会话 sessionId 为：${sessionId}\n当你调用 upload_artifact 上传文件时，必须将此 sessionId 作为参数传入，以便系统自动将产物与本次雇佣会话关联。`
+      : '';
+    const resolvedSystemPrompt = (baseSystemPrompt + sessionInstruction).trim() || undefined;
+
     const msgCtx = {
       Body: content,
       AccountId: this.accountId,
       SessionKey: this.buildSessionKey(sessionId),
+      ...(resolvedSystemPrompt ? { SystemPrompt: resolvedSystemPrompt } : {}),
     };
+
 
     // Guard against double-completion:
     // In streaming mode the SDK resolves the Promise when done but may NOT call deliver.
