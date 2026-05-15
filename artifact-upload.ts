@@ -2,6 +2,65 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ARTIFACT_UPLOAD_URL, ARTIFACT_HIRE_BIND_URL } from './config';
 
+// ── 上传接口响应结构 ─────────────────────────────────────────────────────────
+// 兼容服务端多种字段命名：顶层 url / address，或嵌套在 data 对象内
+interface UploadResponseData {
+  url?: string;
+  address?: string;
+}
+
+interface UploadApiResponse extends UploadResponseData {
+  data?: UploadResponseData;
+}
+
+// ── 绑定接口响应结构 ─────────────────────────────────────────────────────────
+interface BindApiResponse {
+  code: number;
+  message: string;
+  data?: {
+    id: number;
+    name: string;
+    address: string;
+    user_id: number;
+    source: number;
+    business_id: string;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
+/**
+ * 从上传响应中提取文件地址
+ * 兼容：顶层 url / address，或 data.url / data.address
+ */
+function extractAddress(resp: UploadApiResponse): string {
+  return resp.url ?? resp.address ?? resp.data?.url ?? resp.data?.address ?? '';
+}
+
+/**
+ * 将 unknown 类型的 JSON 结果解析为 UploadApiResponse
+ * 若结构不符则返回 null
+ */
+function parseUploadResponse(raw: unknown): UploadApiResponse | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const obj = raw as Record<string, unknown>;
+  const result: UploadApiResponse = {};
+
+  if (typeof obj['url'] === 'string') result.url = obj['url'];
+  if (typeof obj['address'] === 'string') result.address = obj['address'];
+
+  if (obj['data'] !== null && typeof obj['data'] === 'object' && !Array.isArray(obj['data'])) {
+    const nested = obj['data'] as Record<string, unknown>;
+    result.data = {};
+    if (typeof nested['url'] === 'string') result.data.url = nested['url'];
+    if (typeof nested['address'] === 'string') result.data.address = nested['address'];
+  }
+
+  return result;
+}
+
 export const artifactUploadTool = {
   name: "upload_artifact",
   label: "Upload Artifact File (上传产物文件)",
@@ -20,11 +79,19 @@ export const artifactUploadTool = {
     },
     required: ["filePath"]
   },
-  execute: async (_toolCallId: string, params: any, _signal?: any, _onUpdate?: any) => {
+  execute: async (_toolCallId: string, params: Record<string, unknown>, _signal?: unknown, _onUpdate?: unknown) => {
     try {
-      const { filePath, sessionId } = params;
+      const filePath = typeof params['filePath'] === 'string' ? params['filePath'] : '';
+      const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : '';
 
       // ── Step 1: 检查文件是否存在 ──────────────────────────────────────
+      if (!filePath) {
+        return {
+          content: [{ type: "text" as const, text: 'Missing required parameter: filePath' }],
+          details: { ok: false, error: 'Missing required parameter: filePath' },
+        };
+      }
+
       if (!fs.existsSync(filePath)) {
         return {
           content: [{ type: "text" as const, text: `File not found: ${filePath}` }],
@@ -49,12 +116,16 @@ export const artifactUploadTool = {
         throw new Error(`Upload failed with HTTP status: ${uploadResponse.status}`);
       }
 
-      const uploadData = await uploadResponse.json();
+      const rawUploadData: unknown = await uploadResponse.json();
+      const uploadData = parseUploadResponse(rawUploadData);
+
+      if (uploadData === null) {
+        throw new Error('Upload succeeded but response format is unexpected');
+      }
 
       // ── Step 3: 若存在 sessionId，调绑定接口关联雇佣 session ──────────
       if (sessionId) {
-        // 从上传响应中提取文件地址（兼容常见的 url / address / data.url 字段）
-        const address: string = uploadData?.url ?? uploadData?.address ?? uploadData?.data?.url ?? uploadData?.data?.address ?? '';
+        const address = extractAddress(uploadData);
 
         if (!address) {
           // 上传成功但无法提取地址，记录警告后仍返回上传结果，不阻断主流程
@@ -62,11 +133,11 @@ export const artifactUploadTool = {
             content: [{
               type: "text" as const,
               text: JSON.stringify({
-                ...uploadData,
+                upload: uploadData,
                 bindWarning: '上传成功，但无法从响应中提取文件地址，跳过雇佣 session 绑定。',
               }),
             }],
-            details: uploadData,
+            details: { upload: uploadData, bindWarning: '上传成功，但无法从响应中提取文件地址，跳过雇佣 session 绑定。' },
           };
         }
 
@@ -97,7 +168,8 @@ export const artifactUploadTool = {
           };
         }
 
-        const bindData = await bindResponse.json();
+        const rawBindData: unknown = await bindResponse.json();
+        const bindData = rawBindData as BindApiResponse;
         return {
           content: [{
             type: "text" as const,
@@ -113,8 +185,8 @@ export const artifactUploadTool = {
         details: uploadData,
       };
 
-    } catch (e: any) {
-      const message = e.message || 'Upload failed';
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Upload failed';
       return {
         content: [{ type: "text" as const, text: message }],
         details: { ok: false, error: message },
