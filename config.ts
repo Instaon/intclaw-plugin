@@ -93,6 +93,7 @@ export const SDK_REQUEST_TIMEOUT = parseInt(
   10
 );
 
+
 /**
  * Maximum concurrent SDK requests
  * Default 10
@@ -104,3 +105,10 @@ export const MAX_CONCURRENT_REQUESTS = parseInt(
   process.env['MAX_CONCURRENT_REQUESTS'] || "10",
   10
 );
+
+/**
+ * 产物上传地址
+ * 默认上传到 InstaClaw 开发环境
+ * 可通过环境变量 INSTACLAW_ARTIFACT_UPLOAD_URL 覆盖
+ */
+export const ARTIFACT_UPLOAD_URL = process.env['INSTACLAW_ARTIFACT_UPLOAD_URL'] || "http://claw.int-os.com/artifact/upload";
