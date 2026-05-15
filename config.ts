@@ -112,3 +112,10 @@ export const MAX_CONCURRENT_REQUESTS = parseInt(
  * 可通过环境变量 INSTACLAW_ARTIFACT_UPLOAD_URL 覆盖
  */
 export const ARTIFACT_UPLOAD_URL = process.env['INSTACLAW_ARTIFACT_UPLOAD_URL'] || "http://claw.int-os.com/artifact/upload";
+
+/**
+ * 雇佣 session 产物绑定接口地址
+ * 上传完成后，通过此接口将产物与雇佣 session 关联
+ * 可通过环境变量 INSTACLAW_ARTIFACT_HIRE_BIND_URL 覆盖
+ */
+export const ARTIFACT_HIRE_BIND_URL = process.env['INSTACLAW_ARTIFACT_HIRE_BIND_URL'] || "http://claw.int-os.com/tasks/artifacts/hire/bind";
