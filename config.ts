@@ -89,7 +89,7 @@ export const TEXT_CHUNK_SIZE = 50;
  * Validates: Requirements 14.1
  */
 export const SDK_REQUEST_TIMEOUT = parseInt(
-  process.env['SDK_REQUEST_TIMEOUT'] || "60000",
+  process.env['SDK_REQUEST_TIMEOUT'] || "43200000", // 12 hours
   10
 );
 
